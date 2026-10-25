@@ -83,10 +83,9 @@ def _fmt(v, nd=6) -> str:
     return " ".join(f"{float(x):.{nd}g}" for x in v)
 
 
-def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
-    mesh_dir = out_dir / "meshes"
+def export_meshes(parts: dict[str, CoguPart], mesh_dir: Path) -> dict[tuple[str, bool], str]:
+    """One visual/collision STL per (part, side). Returns {(part, mirrored): mesh name}."""
     mesh_dir.mkdir(parents=True, exist_ok=True)
-    # one mesh per (part, side)
     mesh_names: dict[tuple[str, bool], str] = {}
     for name, part in parts.items():
         for mirror in (False, True):
@@ -94,16 +93,49 @@ def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
             solid = assembly.mirrored(part.solid) if mirror else part.solid
             export_stl(solid, str(mesh_dir / f"{mname}.stl"), tolerance=0.05, angular_tolerance=0.2)
             mesh_names[(name, mirror)] = mname
+    return mesh_names
 
-    root = ET.Element("mujoco", model="cogu_lower_body")
+
+def _sole_box(parts: dict[str, CoguPart], mirrored: bool) -> tuple[list[float], list[float]]:
+    """(centre m, half-sizes m) of a box matching the foot sole, in the foot (ankle) frame."""
+    solid = assembly.mirrored(parts["foot"].solid) if mirrored else parts["foot"].solid
+    bb = solid.bounding_box()
+    centre = [(bb.min.X + bb.max.X) / 2, (bb.min.Y + bb.max.Y) / 2, bb.min.Z + P.FOOT_SOLE_THICKNESS / 2]
+    half = [(bb.max.X - bb.min.X) / 2, (bb.max.Y - bb.min.Y) / 2, P.FOOT_SOLE_THICKNESS / 2]
+    return [c * MM for c in centre], [h * MM for h in half]
+
+
+def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
+    """MJCF tree for the lower body.
+
+    mjx=False: every printed part is a collision mesh (faithful contacts, for `check_mjcf.py`
+               and the interactive viewer).
+    mjx=True : the training variant for MuJoCo Playground / MJX. Same bodies, joints, masses
+               and actuators, but meshes are visual only and the only collision geometry is
+               one box per foot sole against the floor (no self-collision), plus the solver
+               settings MJX likes. Both variants carry the same IMU / foot sites and sensors.
+    """
+    root = ET.Element("mujoco", model="cogu_lower_body" + ("_mjx" if mjx else ""))
     ET.SubElement(root, "compiler", angle="degree", meshdir="meshes", autolimits="true")
-    ET.SubElement(root, "option", timestep="0.002", gravity="0 0 -9.81")
+    option = ET.SubElement(root, "option", timestep="0.002", gravity="0 0 -9.81")
+    if mjx:
+        option.set("iterations", "3")
+        option.set("ls_iterations", "5")
+        ET.SubElement(option, "flag", eulerdamp="disable")
     visual = ET.SubElement(root, "visual")
     ET.SubElement(visual, "global", offwidth="1280", offheight="960")
     default = ET.SubElement(root, "default")
     ET.SubElement(default, "joint", damping="0.05", armature="0.005", frictionloss="0.02")
-    ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
-                  rgba="0.93 0.86 0.72 1", group="0")
+    if mjx:
+        ET.SubElement(default, "geom", type="mesh", contype="0", conaffinity="0", group="2",
+                      rgba="0.93 0.86 0.72 1")
+        coll = ET.SubElement(default, "default", **{"class": "collision"})
+        ET.SubElement(coll, "geom", type="box", contype="0", conaffinity="1", group="3", condim="3",
+                      friction="0.9 0.005 0.0001", rgba="0.3 0.3 0.8 0.4")
+    else:
+        ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
+                      rgba="0.93 0.86 0.72 1", group="0")
+    ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
     ET.SubElement(asset, "texture", name="grid", type="2d", builtin="checker", rgb1=".2 .3 .4", rgb2=".3 .4 .5",
@@ -114,9 +146,15 @@ def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
 
     world = ET.SubElement(root, "worldbody")
     ET.SubElement(world, "light", pos="0.3 0 1.2", dir="-0.3 0 -1", diffuse="0.9 0.9 0.9")
-    ET.SubElement(world, "geom", name="floor", type="plane", size="2 2 0.05", material="grid", contype="1", conaffinity="1")
+    if mjx:
+        ET.SubElement(world, "geom", name="floor", type="plane", size="0 0 0.05", material="grid",
+                      contype="1", conaffinity="0", priority="1", friction="0.8", condim="3")
+    else:
+        ET.SubElement(world, "geom", name="floor", type="plane", size="2 2 0.05", material="grid",
+                      contype="1", conaffinity="1")
 
     joints: list[tuple[str, tuple]] = []
+    foot_contact_geoms: list[str] = []
     pelvis_h = assembly.standing_pelvis_height() * MM
 
     def emit(body: assembly.Body, parent_el: ET.Element, root_body: bool = False):
@@ -124,6 +162,10 @@ def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
         if root_body:
             el.set("pos", f"0 0 {pelvis_h:.5f}")
             ET.SubElement(el, "freejoint", name="root")
+            # IMU frame: pelvis origin, axes aligned with the pelvis (the BNO055 goes in the body above)
+            ET.SubElement(el, "site", name="imu", pos="0 0 0")
+            ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.55 0.12",
+                          xyaxes="1 0 0 0 0.25 1")
         elif body.joint:
             ET.SubElement(el, "joint", name=body.joint, type="hinge", axis=_fmt(body.joint_axis),
                           range=_fmt(body.joint_range_deg))
@@ -140,6 +182,17 @@ def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
         ET.SubElement(el, "inertial", pos=_fmt(com), mass=f"{mass:.5f}",
                       fullinertia=_fmt([inertia[0, 0], inertia[1, 1], inertia[2, 2],
                                         inertia[0, 1], inertia[0, 2], inertia[1, 2]], 5))
+        if body.name.endswith("_foot"):
+            mirrored = body.name.startswith("L")
+            centre, half = _sole_box(parts, mirrored)
+            sole_bottom = [centre[0], centre[1], centre[2] - half[2]]
+            ET.SubElement(el, "site", name=f"{body.name}_site", pos=_fmt(sole_bottom))
+            if mjx:
+                ET.SubElement(el, "geom", name=f"{body.name}_sole", pos=_fmt(centre), size=_fmt(half),
+                              **{"class": "collision"})
+                foot_contact_geoms.append(f"{body.name}_sole")
+            else:
+                foot_contact_geoms.append(f"{body.name}_foot")
         for child in body.children:
             emit(child, el)
 
@@ -150,17 +203,41 @@ def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> Path:
         # ctrlrange is NOT converted by compiler/angle: always radians
         ET.SubElement(act, "position", name=jname, joint=jname, ctrlrange=_fmt([math.radians(v) for v in rng]))
 
+    sensor = ET.SubElement(root, "sensor")
+    ET.SubElement(sensor, "gyro", name="gyro", site="imu")
+    ET.SubElement(sensor, "accelerometer", name="accelerometer", site="imu")
+    ET.SubElement(sensor, "velocimeter", name="local_linvel", site="imu")
+    ET.SubElement(sensor, "framezaxis", name="upvector", objtype="site", objname="imu")
+    ET.SubElement(sensor, "framelinvel", name="global_linvel", objtype="site", objname="imu")
+    ET.SubElement(sensor, "frameangvel", name="global_angvel", objtype="site", objname="imu")
+    for side in ("L", "R"):
+        ET.SubElement(sensor, "framepos", name=f"{side}_foot_pos", objtype="site", objname=f"{side}_foot_site")
+        ET.SubElement(sensor, "framelinvel", name=f"{side}_foot_global_linvel", objtype="site",
+                      objname=f"{side}_foot_site")
+    for g in foot_contact_geoms:
+        ET.SubElement(sensor, "contact", name=f"{g}_floor_found", geom1=g, geom2="floor", reduce="mindist",
+                      num="1", data="found")
+
     # keyframe qpos/ctrl are always radians, whatever compiler/angle says
     rest = {j: math.radians(a) for j, a in assembly.rest_pose().items()}
     key = ET.SubElement(root, "keyframe")
     qpos = ["0", "0", f"{pelvis_h:.5f}", "1", "0", "0", "0"] + [f"{rest[j]:.5f}" for j, _ in joints]
     ctrl = [f"{rest[j]:.5f}" for j, _ in joints]
     ET.SubElement(key, "key", name="rest", qpos=" ".join(qpos), ctrl=" ".join(ctrl))
+    return root
 
-    xml = minidom.parseString(ET.tostring(root)).toprettyxml(indent="  ")
-    path = out_dir / "cogu_lower_body.xml"
-    path.write_text(xml)
-    return path
+
+def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> list[Path]:
+    """Write `cogu_lower_body.xml` (full collision meshes) and `cogu_lower_body_mjx.xml`
+    (training variant) sharing one `meshes/` folder."""
+    mesh_names = export_meshes(parts, out_dir / "meshes")
+    written = []
+    for mjx, fname in ((False, "cogu_lower_body.xml"), (True, "cogu_lower_body_mjx.xml")):
+        xml = minidom.parseString(ET.tostring(build_mjcf(parts, mesh_names, mjx))).toprettyxml(indent="  ")
+        path = out_dir / fname
+        path.write_text(xml)
+        written.append(path)
+    return written
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +318,8 @@ def main(argv=None) -> int:
         export_stl(part.oriented_for_print(), str(tdir / f"{name}.stl"), tolerance=0.02, angular_tolerance=0.1)
 
     print("MJCF …")
-    mjcf = write_mjcf(parts, out / "mjcf")
-    print("  ", mjcf)
+    for mjcf in write_mjcf(parts, out / "mjcf"):
+        print("  ", mjcf)
 
     if not args.no_step:
         print("STEP …")

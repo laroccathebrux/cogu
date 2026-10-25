@@ -18,6 +18,8 @@ jobs:
         run: uv run python -m cad.export --out build
       - name: Check the MJCF loads and the robot stands
         run: uv run python sim/check_mjcf.py build/mjcf/cogu_lower_body.xml
+      - name: Check the MJX training env (MuJoCo Playground)
+        run: uv run python sim/playground/check_env.py
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:

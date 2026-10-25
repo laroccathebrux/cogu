@@ -59,9 +59,16 @@ uv run python -m cad.export
 uv run python sim/check_mjcf.py              # carrega, confere massas e simula 3 s em pé
 uv run python -m mujoco.viewer --mjcf build/mjcf/cogu_lower_body.xml   # visualizador interativo
 
-# 4. Antes de imprimir as peças reais: imprimir os testes de calibração
+# 4. Treinar a primeira política de caminhada (PPO em MJX; ~4 min de smoke test no CPU)
+uv run python sim/playground/train.py --steps 200000 --num-evals 2
+uv run python sim/playground/rollout.py      # grava build/videos/walk.mp4
+
+# 5. Antes de imprimir as peças reais: imprimir os testes de calibração
 ls build/stl/test_prints/                    # insert_test, fit_test, bearing_test
 ```
+
+O treino de verdade (10–100 M passos) e como rodá-lo em GPU / Hugging Face Jobs estão em
+[sim/playground/README.md](sim/playground/README.md).
 
 As peças ficam em `build/stl/<peça>.stl`, já na orientação de impressão.
 
@@ -74,7 +81,7 @@ cad/            CAD paramétrico em build123d (fonte única de verdade)
   parts/          uma peça por arquivo
   export.py       gera STL / STEP / MJCF
   test_prints/    calibração de insertos e pino/furo
-sim/            MuJoCo Playground, identificação de atuador (BAM)
+sim/            MuJoCo Playground (sim/playground: env, treino PPO, rollout), identificação de atuador (BAM)
 firmware/       face-esp32 (CYD, olhos) · runtime-pi (loop 50 Hz, política ONNX)
 hardware/       esquemas de fiação
 docs/           decisões (ADRs), guia de montagem, BOM, protocolo de expressão
@@ -152,8 +159,13 @@ uv sync                                    # needs uv: https://docs.astral.sh/uv
 uv run python -m cad.export                # STL / STEP / MJCF of the leg
 uv run python sim/check_mjcf.py            # loads the MJCF, checks masses, stands for 3 s
 uv run python -m mujoco.viewer --mjcf build/mjcf/cogu_lower_body.xml
+uv run python sim/playground/train.py --steps 200000 --num-evals 2   # PPO smoke test on MJX (~4 min, CPU)
+uv run python sim/playground/rollout.py    # writes build/videos/walk.mp4
 ls build/stl/test_prints/                  # print these calibration parts first
 ```
+
+The real training run (10–100 M steps) and how to scale it on a GPU / Hugging Face Jobs are described in
+[sim/playground/README.md](sim/playground/README.md) (Portuguese).
 
 ## Licenses
 
