@@ -19,6 +19,7 @@ THIGH_LENGTH = 60.0         # hip-pitch axis -> knee axis
 SHIN_LENGTH = 60.0          # knee axis -> ankle axis
 FOOT_HEIGHT = 26.0          # ground -> ankle axis (brief said 15; the shin housing corner sweeps r≈19.8 mm around the ankle, plus 5 mm sole)
 HIP_SPACING = 40.0          # distance between the two hip-yaw axes
+LEG_GAP = 10.0              # minimum lateral gap between the two legs' inner fork plates at rest
 TOTAL_HEIGHT_TARGET = 280.0
 MASS_TARGET_G = 1200.0
 
@@ -191,7 +192,7 @@ YAW_LINK_THICKNESS = 4.0
 # Foot
 # ---------------------------------------------------------------------------
 FOOT_LENGTH = 65.0
-FOOT_WIDTH = 52.0               # brief said ~45; widened so the ankle fork plates sit inside the sole outline
+FOOT_WIDTH = 52.0               # brief said ~45; must cover the 51 mm ankle fork (horn plate .. bearing plate)
 FOOT_CORNER_RADIUS = 15.0
 FOOT_SOLE_THICKNESS = 5.0
 ANKLE_X_FROM_HEEL = 22.0        # ankle axis sits behind the foot centre

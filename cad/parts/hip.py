@@ -36,7 +36,12 @@ PITCH_HOUSING_OPEN = 1.0
 # The pitch servo body points FORWARD in the beam, so the thigh is free to swing backwards
 # (digitigrade rest pose and crouch); the beam's rear end is flush with the rear paddle.
 PITCH_AXIS_X = K.BEARING_PLATE_Y0 - P.CLEARANCE_LOOSE - K.HOUSING_Z_BOTTOM   # -30.84
-PITCH_AXIS_Y = -(K.HORN_PLATE_Y1 + K.BEARING_PLATE_Y0) / 2     # fork centre on the roll axis (y=0) -> 17.8
+# Lateral position of the pitch stack. The leg's fork (horn plate .. bearing plate) is wider
+# than HIP_SPACING, so the fork centre is pushed OUTBOARD of the roll/yaw axis until the two
+# legs' inner plates are LEG_GAP apart at the midline.
+FORK_SPAN = K.HORN_PLATE_Y1 - K.BEARING_PLATE_Y0                                  # 51.05
+LEG_LATERAL_OFFSET = max(0.0, (FORK_SPAN + P.LEG_GAP) / 2 - P.HIP_SPACING / 2)     # 10.5 outboard
+PITCH_AXIS_Y = -(K.HORN_PLATE_Y1 + K.BEARING_PLATE_Y0) / 2 - LEG_LATERAL_OFFSET    # 17.8 - 10.5 = 7.3
 
 
 def build_pelvis() -> CoguPart:
