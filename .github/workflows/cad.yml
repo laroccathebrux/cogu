@@ -1,0 +1,29 @@
+name: CAD export
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --frozen
+      - name: Generate STL / STEP / MJCF and run the design rules
+        run: uv run python -m cad.export --out build
+      - name: Check the MJCF loads and the robot stands
+        run: uv run python sim/check_mjcf.py build/mjcf/cogu_lower_body.xml
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cogu-cad-${{ github.sha }}
+          path: |
+            build/stl
+            build/step
+            build/mjcf
+          retention-days: 30

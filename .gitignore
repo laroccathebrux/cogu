@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+dist/
+
+# CAD / sim build outputs (gerados por cad/export.py; publicados como artefatos no CI)
+build/
+sim/mjcf/*.xml
+sim/mjcf/meshes/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
