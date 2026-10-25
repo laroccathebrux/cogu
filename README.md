@@ -47,7 +47,8 @@ Qualquer PR que viole estas regras deve ser recusado.
 8. **Nenhum cabo externo**: canais de cabo dentro da coxa e da canela.
 9. **Só componentes de prateleira**, com alternativas por região no BOM.
 
-Essas regras são verificadas em código em `cad/design_rules.py` e rodam no CI.
+Essas regras são verificadas em código em `cad/design_rules.py` e rodam no CI, junto com
+`cad/check_envelopes.py`, que varre cada junta e mede colisões exatas entre as peças impressas.
 
 ## Primeiros 60 minutos
 
@@ -155,7 +156,8 @@ Any PR that breaks these rules must be rejected.
 8. **No external cables**: cable channels inside thigh and shin.
 9. **Off-the-shelf components only**, with regional alternatives in the BOM.
 
-These rules are checked in code in `cad/design_rules.py` and run in CI.
+These rules are checked in code in `cad/design_rules.py` and run in CI, together with
+`cad/check_envelopes.py`, which sweeps every joint and measures exact overlaps between printed parts.
 
 ## First 60 minutes
 

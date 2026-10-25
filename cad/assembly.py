@@ -5,7 +5,8 @@ exporter walks this tree. Frames are axis-aligned with the pelvis frame at
 q = 0 (straight legs); each body's origin sits on its joint axis.
 
 Joint sign convention (MuJoCo hinge, right-hand rule about `axis`):
-  hip_yaw   axis +Z   positive = foot turns to the robot's left
+  hip_yaw   axis +Z   positive = foot turns to the robot's left (range mirrored per leg:
+                      the knee may swing ~30° outboard but only ~8° inboard)
   hip_roll  axis +X   positive = foot swings to the robot's left
   hip_pitch axis −Y   positive = thigh swings FORWARD
   knee      axis −Y   positive = shin swings forward (digitigrade rest pose is negative)
@@ -85,7 +86,8 @@ def leg(side: str) -> Body:
                        # mirroring (Y flip) before the Z rotation would send the hub to +X, in front.
                        PartInstance("back_hub", (0, 0, 0), False, rot_z=-90)],
                 children=[thigh])
-    yaw = Body(f"{side}_hip_yaw", (0, yaw_y, 0), f"{side}_hip_yaw", (0, 0, 1), rng["hip_yaw"],
+    yaw_range = rng["hip_yaw"] if side == "R" else (-rng["hip_yaw"][1], -rng["hip_yaw"][0])   # mirrored
+    yaw = Body(f"{side}_hip_yaw", (0, yaw_y, 0), f"{side}_hip_yaw", (0, 0, 1), yaw_range,
                parts=[PartInstance("hip_yaw_link", (0, 0, 0), m)],
                children=[roll])
     return yaw

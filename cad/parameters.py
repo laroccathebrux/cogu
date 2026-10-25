@@ -30,14 +30,19 @@ REST_HIP_PITCH_DEG = -35.0
 REST_KNEE_DEG = 70.0
 REST_ANKLE_DEG = -35.0
 
-# Joint ranges used by the simulator (absolute, 0 = straight leg). Limits come from the
-# collision envelopes of the printed parts: thigh vs hip-pitch beam (≈ ±47° where the beam
-# is), shin cheeks vs thigh housing (≈ 115° of knee flexion).
+# Joint ranges used by the simulator (absolute, 0 = straight leg). They must stay inside the
+# collision-free intervals measured by `uv run python -m cad.check_envelopes` (exact solid
+# overlaps, run in CI). Measured on 2026-10-25: hip_pitch -90..+20, knee -30..+95,
+# ankle -85..+85, hip_roll beyond ±60, hip_yaw ≈ ±40 (one leg turning, the other straight).
 JOINT_RANGES_DEG = {
-    "hip_yaw": (-45.0, 45.0),
+    # hip_yaw is ASYMMETRIC: the knee sits ~65 mm behind the yaw axis and the legs are only
+    # LEG_GAP apart, so turning the knee INBOARD collides with the other leg after ~10°, while
+    # turning it outboard is free to ~35°. Given for the RIGHT leg (+ = knee outboard); the
+    # assembly mirrors it for the left leg.
+    "hip_yaw": (-7.0, 30.0),
     "hip_roll": (-35.0, 35.0),
-    "hip_pitch": (-90.0, 45.0),
-    "knee": (0.0, 115.0),
+    "hip_pitch": (-85.0, 15.0),   # forward limit: thigh housing corners meet the hip-pitch beam
+    "knee": (0.0, 90.0),          # shin cheeks meet the thigh housing beyond ~95°
     "ankle": (-75.0, 45.0),
 }
 

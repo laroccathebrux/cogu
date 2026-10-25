@@ -18,6 +18,8 @@ jobs:
         run: uv run python -m cad.export --out build
       - name: Check the MJCF loads and the robot stands
         run: uv run python sim/check_mjcf.py build/mjcf/cogu_lower_body.xml
+      - name: Joint envelopes (exact part overlaps vs JOINT_RANGES_DEG)
+        run: uv run python -m cad.check_envelopes
       - name: Check the MJX training env (MuJoCo Playground)
         run: uv run python sim/playground/check_env.py
       - name: Upload artefacts
