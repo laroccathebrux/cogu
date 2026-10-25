@@ -15,6 +15,10 @@ imprimir, montar, modificar e redistribuir o Cogu.
   STL/STEP/MJCF e ficam em pé no MuJoCo na pose de repouso digitígrada (joelho para trás):
 
   ![Parte inferior do Cogu em pé no MuJoCo](docs/renders/sim_rest_pose_v0.png)
+- Primeira política de caminhada (PPO em MuJoCo Playground / MJX, 10 M passos no CPU) anda para frente
+  a 0,12 m/s sem cair — [vídeo](docs/renders/sim_walk_v0.mp4), detalhes em [sim/playground](sim/playground/README.md):
+
+  ![Cogu andando na simulação](docs/renders/sim_walk_v0.png)
 - Documento de decisões completo: [docs/decisions/ADR-000-project-brief.md](docs/decisions/ADR-000-project-brief.md)
 - Inspiração de stack: Open Duck Mini v2 / Microduck (Pollen Robotics).
 
@@ -120,7 +124,9 @@ with a common FDM printer (reference: Bambu Lab A1 Mini). Reproducibility is an 
 not a nice-to-have.
 
 - Status: **"sim first" phase**. Pelvis + two 5-DOF legs exist in build123d, export to STL/STEP/MJCF
-  and stand in MuJoCo at the digitigrade rest pose (see the render above).
+  and stand in MuJoCo at the digitigrade rest pose (see the render above). A first walking policy
+  (PPO on MuJoCo Playground / MJX, 10 M steps on a laptop CPU) walks forward at 0.12 m/s without falling
+  ([video](docs/renders/sim_walk_v0.mp4), details in [sim/playground](sim/playground/README.md)).
 - Full decision record (Portuguese): [docs/decisions/ADR-000-project-brief.md](docs/decisions/ADR-000-project-brief.md)
 - Stack inspiration: Open Duck Mini v2 / Microduck (Pollen Robotics).
 

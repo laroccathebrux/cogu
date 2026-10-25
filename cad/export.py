@@ -164,8 +164,10 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
             ET.SubElement(el, "freejoint", name="root")
             # IMU frame: pelvis origin, axes aligned with the pelvis (the BNO055 goes in the body above)
             ET.SubElement(el, "site", name="imu", pos="0 0 0")
-            ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.55 0.12",
+            ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.5 0.1",
                           xyaxes="1 0 0 0 0.25 1")
+            ET.SubElement(el, "light", name="track_light", mode="trackcom", pos="0.2 -0.3 1.0", dir="-0.2 0.3 -1",
+                          diffuse="0.7 0.7 0.7")
         elif body.joint:
             ET.SubElement(el, "joint", name=body.joint, type="hinge", axis=_fmt(body.joint_axis),
                           range=_fmt(body.joint_range_deg))

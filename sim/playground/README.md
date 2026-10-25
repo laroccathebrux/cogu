@@ -19,6 +19,26 @@ e regenere com `uv run python -m cad.export`.
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
 
+## Resultado v0 (2026-10-25)
+
+`checkpoints/cogu_walk_v0/`: 10 M passos de PPO, seed 0, 54 min no M1 Max (CPU, 1024 envs, 3,1 k passos/s),
+sobre o MJCF do commit b3df239. Rollout determinístico a partir do keyframe `rest`, 8 s:
+
+| Comando | Resultado |
+|---|---|
+| `vx = 0,15 m/s` | anda 0,94 m (0,12 m/s médio), não cai — [vídeo](../../docs/renders/sim_walk_v0.mp4) |
+| `vx = 0,25 m/s` | 1,53 m (0,19 m/s), não cai |
+| `vx = 0` | fica parado (1 cm de deriva) |
+| `vx = 0,1, ω_z = 0,8 rad/s` | gira e avança, não cai |
+
+Na avaliação com comandos aleatórios + randomização + empurrões a duração média do episódio é 8,6 s de 10 s
+(recompensa 14,1): a marcha é um arrastar de pés curto, ainda cai às vezes. É a prova do pipeline, não a
+política final — ver "Como escalar".
+
+```bash
+uv run python sim/playground/rollout.py --checkpoint sim/playground/checkpoints/cogu_walk_v0
+```
+
 ## Uso
 
 ```bash
@@ -32,7 +52,7 @@ uv run python sim/playground/rollout.py --vx 0.1 --wz 0.8 --out build/videos/tur
 
 `train.py` imprime, a cada avaliação, recompensa média, duração média do episódio (500 = 10 s sem cair)
 e velocidade média para frente. Throughput no M1 Max (CPU, 1024 envs): ~4 k passos de env/s no
-rollout puro, ~2–3 k passos/s no treino completo. 128 envs de avaliação × 500 passos por avaliação.
+rollout puro, ~3,1 k passos/s no treino completo. 128 envs de avaliação × 500 passos por avaliação.
 
 ## O env em uma página
 
