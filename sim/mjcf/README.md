@@ -5,7 +5,7 @@ e sai em `build/mjcf/` (com as meshes em `build/mjcf/meshes/`):
 
 - `cogu_lower_body.xml` — todas as peças como meshes de colisão. Para `sim/check_mjcf.py` e o viewer.
 - `cogu_lower_body_mjx.xml` — variante de treino (MuJoCo Playground / MJX): meshes só visuais, uma
-  caixa de colisão por sola, sem autocolisão. Mesmas juntas, massas, inércias, atuadores e keyframe.
+  caixa de colisão por sola (sola–chão e sola–sola), nenhuma outra autocolisão. Mesmas juntas, massas, inércias, atuadores e keyframe.
 
 Os dois trazem o site `imu` na pelve, sites nas solas, sensores (gyro, acelerômetro, velocímetro,
 vetor "para cima", velocidades globais, contato pé–chão) e a câmera `track`.

@@ -112,8 +112,8 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                and the interactive viewer).
     mjx=True : the training variant for MuJoCo Playground / MJX. Same bodies, joints, masses
                and actuators, but meshes are visual only and the only collision geometry is
-               one box per foot sole against the floor (no self-collision), plus the solver
-               settings MJX likes. Both variants carry the same IMU / foot sites and sensors.
+               one box per foot sole (sole-floor and sole-sole contacts, nothing else), plus the
+               solver settings MJX likes. Both variants carry the same IMU / foot sites and sensors.
     """
     root = ET.Element("mujoco", model="cogu_lower_body" + ("_mjx" if mjx else ""))
     ET.SubElement(root, "compiler", angle="degree", meshdir="meshes", autolimits="true")
@@ -130,7 +130,7 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         ET.SubElement(default, "geom", type="mesh", contype="0", conaffinity="0", group="2",
                       rgba="0.93 0.86 0.72 1")
         coll = ET.SubElement(default, "default", **{"class": "collision"})
-        ET.SubElement(coll, "geom", type="box", contype="0", conaffinity="1", group="3", condim="3",
+        ET.SubElement(coll, "geom", type="box", contype="1", conaffinity="1", group="3", condim="3",
                       friction="0.9 0.005 0.0001", rgba="0.3 0.3 0.8 0.4")
     else:
         ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",

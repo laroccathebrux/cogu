@@ -62,8 +62,8 @@ rollout puro, ~2–3 k passos/s no treino completo. 128 envs de avaliação × 5
 `cad/export.py` gera dois arquivos com a mesma cinemática, massas, inércias e atuadores:
 
 - `cogu_lower_body.xml` — todas as peças são meshes de colisão (contatos fiéis; `check_mjcf.py`, viewer);
-- `cogu_lower_body_mjx.xml` — meshes só visuais; a única colisão é **uma caixa por sola contra o chão**
-  (sem autocolisão), `iterations=3`, `ls_iterations=5`, `eulerdamp` desligado. É o padrão dos envs do
+- `cogu_lower_body_mjx.xml` — meshes só visuais; a única colisão é **uma caixa por sola** (sola–chão e
+  sola–sola; nenhuma outra autocolisão), `iterations=3`, `ls_iterations=5`, `eulerdamp` desligado. É o padrão dos envs do
   Playground ("feet only"): MJX fica ~10× mais rápido e o treino não precisa dos contatos entre peças.
 
 Os dois têm o site `imu` na origem da pelve, sites `L_foot_site`/`R_foot_site` no centro da sola, sensores
@@ -105,6 +105,7 @@ ONNX, como no `Open_Duck_Mini_Runtime`.
 - Rede: política (128, 128, 128), crítico (256, 256, 256), `tanh_normal`, observações normalizadas.
 - `action_scale` 0,4 rad; atraso máximo 2 passos; `tracking_sigma` 0,05; ápice do pé 2,5 cm; altura alvo 0,20 m.
 - Terminar em 60° de inclinação (e não só "de cabeça para baixo" como o Berkeley): o Cogu é baixo e cai rápido.
-- Sem colisão pé–pé no MJX. **Atenção**: na pose de repouso as solas se sobrepõem 12 mm em Y
-  (`FOOT_WIDTH` 52 mm, centros das solas a ±20 mm) — isso é um problema de CAD a resolver antes de imprimir.
+- No MJX só as solas colidem (entre si e com o chão); coxas/canelas não — o CAD garante 10 mm de folga
+  entre as pernas em repouso (`LEG_GAP`), mas poses extremas de hip roll/yaw podem cruzar as pernas sem
+  penalidade na sim.
 - A pelve recebe +(−20…+100) g de carga aleatória como proxy do corpo/chapéu até eles existirem no CAD.
