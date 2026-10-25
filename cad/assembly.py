@@ -81,7 +81,9 @@ def leg(side: str) -> Body:
                  children=[shin])
     roll = Body(f"{side}_hip_roll", (hip.ROLL_AXIS_X, 0, hip.ROLL_AXIS_Z), f"{side}_hip_roll", (1, 0, 0), rng["hip_roll"],
                 parts=[PartInstance("hip_roll_link", (0, 0, 0), m),
-                       PartInstance("back_hub", (0, 0, 0), m, rot_z=-90)],   # hub axis Y -> X
+                       # hub axis Y -> X. Never mirrored: the roll horn points +X on BOTH legs, and
+                       # mirroring (Y flip) before the Z rotation would send the hub to +X, in front.
+                       PartInstance("back_hub", (0, 0, 0), False, rot_z=-90)],
                 children=[thigh])
     yaw = Body(f"{side}_hip_yaw", (0, yaw_y, 0), f"{side}_hip_yaw", (0, 0, 1), rng["hip_yaw"],
                parts=[PartInstance("hip_yaw_link", (0, 0, 0), m)],
