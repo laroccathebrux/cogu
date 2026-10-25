@@ -45,8 +45,8 @@ def body_inertial(instances: list[tuple[CoguPart, Location, bool, float]]) -> tu
     total_m = 0.0
     first = np.zeros(3)
     i_org = np.zeros((3, 3))
-    density = P.PETG_DENSITY_G_CM3 * P.INFILL_MASS_FACTOR / 1000.0   # g/mm³
     for part, loc, mirror, rot_z in instances:
+        density = part.density_g_mm3                               # g/mm³ (per part: shells are all perimeters)
         solid = part.solid
         if mirror:
             solid = assembly.mirrored(solid)
@@ -84,12 +84,19 @@ def _fmt(v, nd=6) -> str:
 
 
 def export_meshes(parts: dict[str, CoguPart], mesh_dir: Path) -> dict[tuple[str, bool], str]:
-    """One visual/collision STL per (part, side). Returns {(part, mirrored): mesh name}."""
+    """One visual/collision STL per (part, side), plus the reference (bought) parts.
+    Returns {(part, mirrored): mesh name}; reference meshes are keyed ("ref:<name>", False)."""
     mesh_dir.mkdir(parents=True, exist_ok=True)
     mesh_names: dict[tuple[str, bool], str] = {}
+    for ref in assembly.reference_solids():
+        export_stl(ref.solid, str(mesh_dir / f"ref_{ref.name}.stl"), tolerance=0.1, angular_tolerance=0.3)
+        mesh_names[(f"ref:{ref.name}", False)] = f"ref_{ref.name}"
     for name, part in parts.items():
         for mirror in (False, True):
-            mname = f"{name}_{'L' if mirror else 'R'}"
+            if mirror and name in assembly.SYMMETRIC_PARTS:
+                mesh_names[(name, True)] = mesh_names[(name, False)]
+                continue
+            mname = f"{name}_{'L' if mirror else 'R'}" if name not in assembly.SYMMETRIC_PARTS else name
             solid = assembly.mirrored(part.solid) if mirror else part.solid
             export_stl(solid, str(mesh_dir / f"{mname}.stl"), tolerance=0.05, angular_tolerance=0.2)
             mesh_names[(name, mirror)] = mname
@@ -105,17 +112,24 @@ def _sole_box(parts: dict[str, CoguPart], mirrored: bool) -> tuple[list[float], 
     return [c * MM for c in centre], [h * MM for h in half]
 
 
+GEOM_CLASS = {"body": "shell", "cap": "cap", "bezel": "hidden", "collar": "hidden", "cap_bracket": "hidden"}
+# The training env (sim/playground) controls the 10 leg servos only: in the MJX variant the neck
+# bodies are emitted without joints (cap fixed at the rest pose), so action/observation sizes stay 10.
+FROZEN_IN_MJX = ("neck", "cap")
+
+
 def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
     """MJCF tree for the lower body.
 
     mjx=False: every printed part is a collision mesh (faithful contacts, for `check_mjcf.py`
                and the interactive viewer).
     mjx=True : the training variant for MuJoCo Playground / MJX. Same bodies, joints, masses
-               and actuators, but meshes are visual only and the only collision geometry is
-               one box per foot sole (sole-floor and sole-sole contacts, nothing else), plus the
-               solver settings MJX likes. Both variants carry the same IMU / foot sites and sensors.
+               and actuators for the legs, but meshes are visual only and the only collision geometry
+               is one box per foot sole (sole-floor and sole-sole contacts, nothing else), plus the
+               solver settings MJX likes. The neck is frozen (see FROZEN_IN_MJX). Both variants carry
+               the same IMU / foot sites and sensors.
     """
-    root = ET.Element("mujoco", model="cogu_lower_body" + ("_mjx" if mjx else ""))
+    root = ET.Element("mujoco", model="cogu" + ("_mjx" if mjx else ""))
     ET.SubElement(root, "compiler", angle="degree", meshdir="meshes", autolimits="true")
     option = ET.SubElement(root, "option", timestep="0.002", gravity="0 0 -9.81")
     if mjx:
@@ -135,13 +149,22 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
     else:
         ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
                       rgba="0.93 0.86 0.72 1", group="0")
+        # Thin shells: MuJoCo collides CONVEX HULLS, and the hull of a hollow body/cap would "collide" with the
+        # hip parts inside it. Shells therefore collide with the floor (bit 2) but never with the legs (bit 1);
+        # the exact shell-vs-leg clearance is checked by cad/check_envelopes.py instead.
+        shell = ET.SubElement(default, "default", **{"class": "shell"})
+        ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.93 0.86 0.72 1")
+        cap = ET.SubElement(default, "default", **{"class": "cap"})
+        ET.SubElement(cap, "geom", contype="2", conaffinity="2", rgba="0.86 0.36 0.30 1")
+        hidden = ET.SubElement(default, "default", **{"class": "hidden"})     # inside the body / cap: visual only
+        ET.SubElement(hidden, "geom", contype="0", conaffinity="0")
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
     ET.SubElement(asset, "texture", name="grid", type="2d", builtin="checker", rgb1=".2 .3 .4", rgb2=".3 .4 .5",
                   width="300", height="300")
     ET.SubElement(asset, "material", name="grid", texture="grid", texrepeat="8 8", reflectance="0.1")
-    for (name, mirror), mname in mesh_names.items():
+    for mname in dict.fromkeys(mesh_names.values()):        # unique, in order
         ET.SubElement(asset, "mesh", name=mname, file=f"{mname}.stl", scale="0.001 0.001 0.001")
 
     world = ET.SubElement(root, "worldbody")
@@ -151,7 +174,7 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                       contype="1", conaffinity="0", priority="1", friction="0.8", condim="3")
     else:
         ET.SubElement(world, "geom", name="floor", type="plane", size="2 2 0.05", material="grid",
-                      contype="1", conaffinity="1")
+                      contype="1", conaffinity="3")
 
     joints: list[tuple[str, tuple]] = []
     foot_contact_geoms: list[str] = []
@@ -162,13 +185,13 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         if root_body:
             el.set("pos", f"0 0 {pelvis_h:.5f}")
             ET.SubElement(el, "freejoint", name="root")
-            # IMU frame: pelvis origin, axes aligned with the pelvis (the BNO055 goes in the body above)
-            ET.SubElement(el, "site", name="imu", pos="0 0 0")
+            # IMU frame: where the BNO055 sits in the body, axes aligned with the pelvis
+            ET.SubElement(el, "site", name="imu", pos=_fmt([v * MM for v in P.IMU_POS]))
             ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.5 0.1",
                           xyaxes="1 0 0 0 0.25 1")
             ET.SubElement(el, "light", name="track_light", mode="trackcom", pos="0.2 -0.3 1.0", dir="-0.2 0.3 -1",
                           diffuse="0.7 0.7 0.7")
-        elif body.joint:
+        elif body.joint and not (mjx and body.name in FROZEN_IN_MJX):
             ET.SubElement(el, "joint", name=body.joint, type="hinge", axis=_fmt(body.joint_axis),
                           range=_fmt(body.joint_range_deg))
             joints.append((body.joint, body.joint_range_deg))
@@ -177,9 +200,17 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
             part = parts[inst.part_name]
             loc = Location(inst.pos)
             instances.append((part, loc, inst.mirrored, inst.rot_z))
+            extra = {"euler": f"0 0 {inst.rot_z}"} if inst.rot_z else {}
+            if not mjx:
+                cls = GEOM_CLASS.get(inst.part_name)
+                if cls:
+                    extra["class"] = cls
             ET.SubElement(el, "geom", name=f"{body.name}_{inst.part_name}", mesh=mesh_names[(inst.part_name, inst.mirrored)],
-                          pos=_fmt([v * MM for v in inst.pos]),
-                          **({"euler": f"0 0 {inst.rot_z}"} if inst.rot_z else {}))
+                          pos=_fmt([v * MM for v in inst.pos]), **extra)
+        for ref in assembly.reference_solids():
+            if ref.body == body.name:
+                ET.SubElement(el, "geom", name=f"ref_{ref.name}", mesh=mesh_names[(f"ref:{ref.name}", False)],
+                              contype="0", conaffinity="0", group="2", rgba=ref.rgba)
         mass, com, inertia = body_inertial(instances)
         ET.SubElement(el, "inertial", pos=_fmt(com), mass=f"{mass:.5f}",
                       fullinertia=_fmt([inertia[0, 0], inertia[1, 1], inertia[2, 2],
@@ -198,7 +229,7 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         for child in body.children:
             emit(child, el)
 
-    emit(assembly.lower_body(), world, root_body=True)
+    emit(assembly.robot(), world, root_body=True)
 
     act = ET.SubElement(root, "actuator")
     for jname, rng in joints:
@@ -231,7 +262,8 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
 
 def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> list[Path]:
     """Write `cogu_lower_body.xml` (full collision meshes) and `cogu_lower_body_mjx.xml`
-    (training variant) sharing one `meshes/` folder."""
+    (training variant) sharing one `meshes/` folder. The file names predate the body and cap
+    (sim/playground reads them); both now contain the complete robot."""
     mesh_names = export_meshes(parts, out_dir / "meshes")
     written = []
     for mjx, fname in ((False, "cogu_lower_body.xml"), (True, "cogu_lower_body_mjx.xml")):
@@ -259,8 +291,8 @@ def write_print_files(parts: dict[str, CoguPart], out_dir: Path) -> list[Path]:
             path = stl_dir / f"{name}_{suffix}.stl"
             export_stl(oriented, str(path), tolerance=0.02, angular_tolerance=0.1)
             written.append(path)
-            if name in ("pelvis", "back_hub"):
-                break      # symmetric parts: one file
+            if name in assembly.ONE_PRINT_FILE:
+                break      # one file serves both sides
         notes.append(f"- **{name}** ({part.material}, ~{part.printed_mass_g:.0f} g printed): {part.print_notes}")
     (stl_dir / "PRINT_NOTES.md").write_text("\n".join(notes) + "\n")
     return written
@@ -284,8 +316,8 @@ def write_step(parts: dict[str, CoguPart], out_dir: Path) -> Path:
         for c in body.children:
             walk(c, o)
 
-    walk(assembly.lower_body(), (0, 0, 0))
-    path = step_dir / "cogu_lower_body.step"
+    walk(assembly.robot(), (0, 0, 0))
+    path = step_dir / "cogu.step"
     export_step(Compound(children=placed), str(path))
     for name, part in parts.items():
         export_step(part.solid, str(step_dir / f"{name}.step"))
@@ -331,7 +363,9 @@ def main(argv=None) -> int:
     print(f"{'part':16s} {'printed g':>10s} {'with servos g':>14s}")
     for name, part in parts.items():
         print(f"{name:16s} {part.printed_mass_g:10.1f} {part.total_mass_g:14.1f}")
-    print(f"standing pelvis height: {assembly.standing_pelvis_height():.1f} mm")
+    total = assembly.total_mass_g(parts)
+    print(f"standing pelvis height: {assembly.standing_pelvis_height():.1f} mm, "
+          f"total height {assembly.total_height():.0f} mm, total mass ≈ {total:.0f} g (target {P.MASS_TARGET_G:.0f})")
     if violations:
         print(f"\n{len(violations)} design-rule violation(s)")
         return 1

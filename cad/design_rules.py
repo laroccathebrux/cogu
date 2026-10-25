@@ -15,7 +15,7 @@ def check_max_dimension(part: CoguPart) -> list[str]:
     bb = part.solid.bounding_box()
     size = (bb.size.X, bb.size.Y, bb.size.Z)
     largest = max(size)
-    if largest > P.MAX_PART_DIMENSION + 1e-6:
+    if largest > P.MAX_PART_DIMENSION + 0.05:      # bounding boxes of splines carry ~0.01 mm of slack
         return [f"{part.name}: largest dimension {largest:.1f} mm > {P.MAX_PART_DIMENSION} mm (A1 Mini)"]
     return []
 

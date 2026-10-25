@@ -40,12 +40,19 @@ class CoguPart:
     insert_holes: list[InsertHole] = field(default_factory=list)
     # extra point masses rigidly attached (name, mass_g, position in part frame)
     attached_masses: list[tuple[str, float, Vector]] = field(default_factory=list)
+    # printed mass = CAD volume × density × this. None -> parameters.INFILL_MASS_FACTOR (solid parts
+    # printed with 25 % infill). Thin-walled shells are all perimeters: use ~0.95.
+    infill_factor: float | None = None
+
+    @property
+    def density_g_mm3(self) -> float:
+        f = P.INFILL_MASS_FACTOR if self.infill_factor is None else self.infill_factor
+        return P.PETG_DENSITY_G_CM3 * f / 1000.0
 
     # --- mass properties (CAD volume × density × infill factor) ---
     @property
     def printed_mass_g(self) -> float:
-        vol_cm3 = self.solid.volume / 1000.0
-        return vol_cm3 * P.PETG_DENSITY_G_CM3 * P.INFILL_MASS_FACTOR
+        return self.solid.volume * self.density_g_mm3
 
     @property
     def total_mass_g(self) -> float:

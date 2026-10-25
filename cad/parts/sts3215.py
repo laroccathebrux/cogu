@@ -49,11 +49,13 @@ def servo_pocket(clearance: float = P.CLEARANCE_LOOSE, open_top: float = 0.0, op
 
     `open_top` extends the pocket by that amount along +X (the back end of the servo),
     so the servo can slide into the pocket from the end of a link.
-    The pocket spans the full case height along Y (horn face to back face), the horn
-    hub/disc and the back disc are NOT included (they sit outside the link walls).
+    The pocket spans the case height PLUS the back-cover bosses along Y (horn face to the
+    top of the bosses, where the back disc starts = cad.stack.BACK_DISC_Y1), so the housing's
+    back wall really begins at HOUSING_BACK_WALL_Y1. The horn hub/disc and the back disc are
+    NOT included (they sit outside the link walls).
     """
     length = S.body_length + 2 * clearance + open_top
-    pocket = Box(length, S.case_height + 2 * clearance, S.body_width + 2 * clearance,
+    pocket = Box(length, S.case_height + S.back_boss_height + 2 * clearance, S.body_width + 2 * clearance,
                  align=(Align.MIN, Align.MAX, Align.CENTER))
     pocket = pocket.moved(Location((S.x_min - clearance, clearance, 0)))
     return pocket

@@ -11,10 +11,12 @@ impressora FDM comum (referência: Bambu Lab A1 Mini).
 Reprodutibilidade aqui é **requisito de engenharia**, não um detalhe: qualquer pessoa deve conseguir
 imprimir, montar, modificar e redistribuir o Cogu.
 
-- Status: **fase "sim primeiro"**. Pelve + duas pernas de 5 DOF já existem em build123d, exportam
-  STL/STEP/MJCF e ficam em pé no MuJoCo na pose de repouso digitígrada (joelho para trás):
+- Status: **fase "sim primeiro"**. O robô completo — pelve, duas pernas de 5 DOF, corpo, colar e chapéu
+  com 2 DOF — existe em build123d, exporta STL/STEP/MJCF e fica em pé no MuJoCo na pose de repouso
+  digitígrada (joelho para trás). Altura 325 mm, massa estimada 1,32 kg
+  ([ADR-001: forma do corpo](docs/decisions/ADR-001-body-shape.md)):
 
-  ![Parte inferior do Cogu em pé no MuJoCo](docs/renders/sim_rest_pose_v0.png)
+  ![Cogu completo em pé no MuJoCo](docs/renders/sim_full_robot_v0.png)
 - Primeira política de caminhada (PPO em MuJoCo Playground / MJX, 10 M passos no CPU) anda para frente
   a 0,12 m/s sem cair — [vídeo](docs/renders/sim_walk_v0.mp4), detalhes em [sim/playground](sim/playground/README.md):
 
@@ -26,9 +28,9 @@ imprimir, montar, modificar e redistribuir o Cogu.
 
 | | |
 |---|---|
-| Altura / massa | ~280 mm · < 1,2 kg |
-| Chapéu | Ø 160 mm, domo baixo, coral com 3 manchas creme; abriga câmera, ToF multizona e anel de LEDs; 2 DOF de tilt (pitch + roll) escondidos no colar |
-| Corpo | Esfera creme Ø ~95 mm: Pi Zero 2W, IMU BNO055, bateria 2S, placa de servos. Tela CYD 2,8" na frente (olhos cartoon) |
+| Altura / massa | 325 mm (alvo do brief: ~280) · ≈ 1,32 kg (alvo: < 1,2 kg) — ver ADR-001 |
+| Chapéu | Ø 160 mm, domo baixo (55 mm), coral com 3 manchas creme; abriga câmera, ToF multizona e anel de LEDs; 2 DOF de tilt (pitch ±15°, roll ±12°) escondidos no colar |
+| Corpo | Ovo creme Ø 110 mm, Ø 115 na saia (o brief dizia ~95: a pilha do quadril e a tela não cabem em menos) que esconde a pelve e os servos de yaw: Pi Zero 2W, IMU BNO055, bateria 2S, placa de servos. Tela CYD 2,8" na frente, inclinada 12° para cima, moldura com 4 parafusos |
 | Pernas | 5 DOF cada (hip yaw / roll / pitch, joelho, tornozelo). Coxa 60 mm, canela 60 mm, pé 15 mm. **Digitígradas** (joelho para trás, como uma ave) e curtas de propósito: CoM baixo, passada curta |
 | Atuadores | 12 × Feetech STS3215 (serial bus, 7,4 V) |
 | Software | MuJoCo Playground (RL + domain randomization), identificação de atuador com BAM, política ONNX a 50 Hz no Pi |
@@ -48,7 +50,9 @@ Qualquer PR que viole estas regras deve ser recusado.
 9. **Só componentes de prateleira**, com alternativas por região no BOM.
 
 Essas regras são verificadas em código em `cad/design_rules.py` e rodam no CI, junto com
-`cad/check_envelopes.py`, que varre cada junta e mede colisões exatas entre as peças impressas.
+`cad/check_envelopes.py` (varre cada junta do quadril e mede colisões exatas entre as peças impressas) e
+`cad/check_body.py` (corpo contra a perna em todo o range do quadril, chapéu contra os joelhos ao agachar,
+ranges do pescoço).
 
 ## Primeiros 60 minutos
 
@@ -57,10 +61,10 @@ Essas regras são verificadas em código em `cad/design_rules.py` e rodam no CI,
 git clone https://github.com/laroccathebrux/cogu.git && cd cogu
 uv sync
 
-# 2. Gerar STL / STEP / MJCF da perna
+# 2. Gerar STL / STEP / MJCF do robô
 uv run python -m cad.export
 
-# 3. Abrir a perna no MuJoCo
+# 3. Abrir o robô no MuJoCo
 uv run python sim/check_mjcf.py              # carrega, confere massas e simula 3 s em pé
 uv run python -m mujoco.viewer --mjcf build/mjcf/cogu_lower_body.xml   # visualizador interativo
 
@@ -96,7 +100,7 @@ O MJCF é **gerado** a partir do CAD, nunca editado à mão.
 
 ## Roteiro
 
-1. **Sim primeiro**: pelve + perna em build123d → MJCF → política de caminhada no MuJoCo Playground. *(fase atual)*
+1. **Sim primeiro**: robô em build123d → MJCF → política de caminhada no MuJoCo Playground. *(fase atual; corpo, colar e chapéu modelados, política ainda só com as pernas)*
 2. **Uma perna real**: imprimir, montar, rodar BAM no STS3215, comparar com a sim.
 3. **Robô completo**: corpo, chapéu, CYD, política treinada, primeiro vídeo, release v0.1.
 4. Depois: documentação de ensino, variantes de perna, v2 (dinossauro sobre as mesmas pernas).
@@ -124,8 +128,10 @@ It is **open source and open hardware**, with an original design that is **100% 
 with a common FDM printer (reference: Bambu Lab A1 Mini). Reproducibility is an engineering requirement,
 not a nice-to-have.
 
-- Status: **"sim first" phase**. Pelvis + two 5-DOF legs exist in build123d, export to STL/STEP/MJCF
-  and stand in MuJoCo at the digitigrade rest pose (see the render above). A first walking policy
+- Status: **"sim first" phase**. The complete robot — pelvis, two 5-DOF legs, body, collar and a 2-DOF
+  cap — exists in build123d, exports to STL/STEP/MJCF and stands in MuJoCo at the digitigrade rest pose
+  (see the render above; 325 mm tall, ≈ 1.32 kg; body-shape decision in
+  [docs/decisions/ADR-001-body-shape.md](docs/decisions/ADR-001-body-shape.md), Portuguese). A first walking policy
   (PPO on MuJoCo Playground / MJX, 10 M steps on a laptop CPU) walks forward at 0.12 m/s without falling
   ([video](docs/renders/sim_walk_v0.mp4), details in [sim/playground](sim/playground/README.md)).
 - Full decision record (Portuguese): [docs/decisions/ADR-000-project-brief.md](docs/decisions/ADR-000-project-brief.md)
@@ -135,9 +141,9 @@ not a nice-to-have.
 
 | | |
 |---|---|
-| Height / mass | ~280 mm · < 1.2 kg |
-| Cap | Ø 160 mm low dome, coral with 3 cream spots; houses camera, multizone ToF and LED ring; 2-DOF tilt (pitch + roll) hidden in the collar |
-| Body | Cream sphere Ø ~95 mm: Pi Zero 2W, BNO055 IMU, 2S LiPo, servo board. 2.8" CYD display on the front (cartoon eyes) |
+| Height / mass | 325 mm (brief target ~280) · ≈ 1.32 kg (target < 1.2 kg) — see ADR-001 |
+| Cap | Ø 160 mm low dome (55 mm), coral with 3 cream spots; houses camera, multizone ToF and LED ring; 2-DOF tilt (pitch ±15°, roll ±12°) hidden in the collar |
+| Body | Cream egg Ø 110 mm, Ø 115 at the skirt (the brief said ~95: the hip stack and the display need more) hiding the pelvis and yaw servos: Pi Zero 2W, BNO055 IMU, 2S LiPo, servo board. 2.8" CYD display on the front, tilted 12° up, 4-screw bezel |
 | Legs | 5 DOF each (hip yaw / roll / pitch, knee, ankle). Thigh 60 mm, shin 60 mm, foot 15 mm. **Digitigrade** (backwards knee, bird-like) and deliberately short: low CoM, short stride |
 | Actuators | 12 × Feetech STS3215 (serial bus, 7.4 V) |
 | Software | MuJoCo Playground (RL + domain randomization), actuator identification with BAM, ONNX policy at 50 Hz on the Pi |
