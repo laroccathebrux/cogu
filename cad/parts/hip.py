@@ -33,7 +33,9 @@ ROLL_AXIS_Z = YAW_PLATE_Z0 - (-K.HOUSING_Z_BOTTOM)       # -24.31: housing top f
 ROLL_LINK_BEAM_TOP = -((K.HOUSING_X_HALF ** 2 + K.HOUSING_Z_TOP ** 2) ** 0.5 + 1.0)   # -41.7
 PITCH_AXIS_Z = ROLL_LINK_BEAM_TOP - K.HOUSING_X_HALF     # beam = pitch housing, centred on its X half-width
 PITCH_HOUSING_OPEN = 1.0
-PITCH_AXIS_X = K.HORN_PLATE_Y1 - (-K.HOUSING_Z_BOTTOM)         # -5.11: beam front flush with the front paddle
+# The pitch servo body points FORWARD in the beam, so the thigh is free to swing backwards
+# (digitigrade rest pose and crouch); the beam's rear end is flush with the rear paddle.
+PITCH_AXIS_X = K.BEARING_PLATE_Y0 - P.CLEARANCE_LOOSE - K.HOUSING_Z_BOTTOM   # -30.84
 PITCH_AXIS_Y = -(K.HORN_PLATE_Y1 + K.BEARING_PLATE_Y0) / 2     # fork centre on the roll axis (y=0) -> 17.8
 
 
@@ -124,12 +126,12 @@ def build_roll_link() -> CoguPart:
     # paddles were built with Y as the axis; the roll axis is X: rotate −90° about Z (+Y -> +X)
     front, rear, pcut = (s.rotate(Axis.Z, -90) for s in (front, rear, pcut))
 
-    # pitch housing: housing frame (Y shaft, Z body, X across) -> roll frame (Y shaft, −X body, Z across)
+    # pitch housing: housing frame (Y shaft, Z body, X across) -> roll frame (Y shaft, +X body, Z across)
     housing, cutters = servo_housing(open_top=PITCH_HOUSING_OPEN)
-    housing = housing.rotate(Axis.Y, -90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
-    cutters = cutters.rotate(Axis.Y, -90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
+    housing = housing.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
+    cutters = cutters.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
     solid = front + rear + housing - (pcut + cutters)
-    servo_com = Vector(PITCH_AXIS_X - (S.x_min + S.x_max) / 2, PITCH_AXIS_Y + S.y_back_face / 2, PITCH_AXIS_Z)
+    servo_com = Vector(PITCH_AXIS_X + (S.x_min + S.x_max) / 2, PITCH_AXIS_Y + S.y_back_face / 2, PITCH_AXIS_Z)
     return CoguPart(
         name="hip_roll_link",
         solid=solid,

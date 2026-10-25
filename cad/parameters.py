@@ -22,19 +22,22 @@ HIP_SPACING = 40.0          # distance between the two hip-yaw axes
 TOTAL_HEIGHT_TARGET = 280.0
 MASS_TARGET_G = 1200.0
 
-# Digitigrade rest pose ("gull-wing" leg: thigh forward/down, knee bends backwards,
-# shin backward/down, ankle behind the foot centre). Positive pitch = flexion forward.
-REST_HIP_PITCH_DEG = 35.0
-REST_KNEE_DEG = -70.0
-REST_ANKLE_DEG = 35.0
+# Digitigrade ("gull-wing" / bird) rest pose: thigh goes BACKWARD and down from the hip,
+# the knee sticks out BEHIND the hip, the shin comes forward and down, the ankle sits
+# behind the foot centre. Positive pitch = distal end swings forward (see assembly.py).
+REST_HIP_PITCH_DEG = -35.0
+REST_KNEE_DEG = 70.0
+REST_ANKLE_DEG = -35.0
 
-# Joint ranges used by the simulator (centre = rest pose above)
+# Joint ranges used by the simulator (absolute, 0 = straight leg). Limits come from the
+# collision envelopes of the printed parts: thigh vs hip-pitch beam (≈ ±47° where the beam
+# is), shin cheeks vs thigh housing (≈ 115° of knee flexion).
 JOINT_RANGES_DEG = {
     "hip_yaw": (-45.0, 45.0),
     "hip_roll": (-35.0, 35.0),
-    "hip_pitch": (-60.0, 90.0),
-    "knee": (-120.0, 0.0),
-    "ankle": (-45.0, 75.0),
+    "hip_pitch": (-90.0, 45.0),
+    "knee": (0.0, 115.0),
+    "ankle": (-75.0, 45.0),
 }
 
 # ---------------------------------------------------------------------------
