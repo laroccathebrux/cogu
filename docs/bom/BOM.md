@@ -13,9 +13,11 @@ Quantidades para **duas pernas + corpo + colar + chapéu** (ADR-001). Tudo de pr
 | Chave tátil 6 × 6 mm | 4 | 2 por pé, altura 4,3–5 mm | qualquer loja de eletrônica |
 | Tela ESP32-2432S028R "CYD" 2,8" | 1 | 86 × 50 mm, ILI9341 320×240, touch resistivo | AliExpress / Amazon |
 | Raspberry Pi Zero 2W | 1 | fica em pé atrás da tela, em trilhos impressos | revendedores oficiais |
-| IMU BNO055 (breakout estilo Adafruit, 20 × 27 mm, 2 furos a 20 mm) | 1 | na prateleira traseira do corpo (`IMU_POS`) | Adafruit / clones |
-| Bateria LiPo 2S 1000 mAh soft pack | 1 | ≤ 14 × 31 × 58 mm, em pé na baia traseira, cinta por 2 fendas | lojas de aeromodelismo |
-| Regulador 5 V (buck 3 A), chave liga/desliga Ø12, USB-C painel | 1 cada | furos na traseira direita do corpo | — |
+| IMU BNO055 (breakout estilo Adafruit, 20 × 27 mm, 2 furos a 20 mm) | 1 | na prateleira traseira do corpo (`IMU_POS`) | Adafruit 2472 via Mouser / DigiKey. **Não há no Mercado Livre** (ver nota) |
+| Bateria LiPo 2S 1000 mAh soft pack | 1 | ≤ 14 × 31 × 58 mm, em pé na baia traseira, cinta por 2 fendas | HobbyKing (Turnigy 1000 mAh 2S). **Nenhuma no Mercado Livre cabe** (ver nota) |
+| Regulador 5 V (buck 3 A) | 1 | Mini360 (MP2307): 4,75–23 V in, 3 A pico / 1,8 A contínuo, 17 × 11 mm | **BR:** ML kit 2× R$ 19,90 — [MLB2076436889](https://www.mercadolivre.com.br/p/MLB2076436889). Alternativa com saída USB-A 5,2 V 3 A (6–26 V in, 28 × 32 × 8 mm): R$ 25,99 — [MLB56492804](https://www.mercadolivre.com.br/p/MLB56492804) |
+| Chave liga/desliga Ø12 | 1 | botão metálico 12 mm com trava (retenção), furo Ø12, cabeça 14 mm, 19 mm de comprimento, 3 A | **BR:** ML kit 6× R$ 93,80 — [MLBU3098744716](https://www.mercadolivre.com.br/up/MLBU3098744716); avulso com LED R$ 23 — [MLBU1432091586](https://www.mercadolivre.com.br/up/MLBU1432091586) (LED 12–24 V, não acende em 7,4 V) |
+| USB-C painel | 1 | conector USB-C fêmea em placa adaptadora DIP; a face do conector passa pela fenda de 10 × 5 mm (`BODY_USBC_SLOT`) | **BR:** ML avulso R$ 25 — [MLBU5183896373](https://www.mercadolivre.com.br/up/MLBU5183896373); kit 5× R$ 19 — [MLBU5388387513](https://www.mercadolivre.com.br/up/MLBU5388387513) |
 | Câmera Pi + ToF VL53L5CX + anel WS2812 | 1 cada | sob a aba do chapéu (janela frontal da fenda, canal do anel na borda) | — |
 | Filamento PETG | ~450 g | creme (corpo, colar, pernas) + coral (chapéu) + 3 discos creme para as manchas | — |
 
@@ -29,5 +31,22 @@ A página lista impostos estimados (R$ 119,53 importação + R$ 117,08 ICMS por 
 estão nos R$ 452,31: confirmar o total no checkout (R$ 113 ou R$ 172 por servo). Placa controladora não
 vem no kit; conteúdo (horn, disco, parafusos M2, cabo) conferir na chegada, pois a descrição está cortada.
 Para a fase "uma perna real" lembrar que uma perna usa 5 servos: 1 kit de 4 não basta.
+
+Busca no Mercado Livre em 25/10/2026 (IMU, bateria, regulador, chave, USB-C):
+
+- **IMU**: a medida do BOM (20 × 27 mm, 2 furos a 20 mm, `BNO055` em `cad/parameters.py`) é a da Adafruit 2472, que não
+  aparece em nenhum anúncio, nem com filtro de marca Adafruit. O que existe são dois outros formatos: **CJMCU-055** (roxa,
+  quase quadrada, header de 10 pinos de um lado e 2 furos do outro com espaçamento bem menor que 20 mm; nacional, R$ 238,67,
+  [MLBU1738983155](https://www.mercadolivre.com.br/up/MLBU1738983155)) e **GY-BNO055** (azul, 12 × 20 mm, 2 furos em cantos
+  opostos; importada, R$ 48–70, p. ex. [MLB2065186027](https://www.mercadolivre.com.br/p/MLB2065186027)). Para usar uma
+  delas é preciso trocar o dicionário `BNO055` no CAD pelo footprint real, medido na chegada.
+- **Bateria**: a medida do BOM corresponde à Turnigy 1000 mAh 2S (HobbyKing), que não é vendida no ML. Medidas reais das
+  2S 1000 mAh nacionais abertas: Futaba MK 20C 54 × 29 × 20 mm (R$ 139,99, [MLB2089585852](https://www.mercadolivre.com.br/p/MLB2089585852));
+  30C Futaba 57 × 30 × 20 mm (R$ 169,90, [MLB2081996195](https://www.mercadolivre.com.br/p/MLB2081996195));
+  Gens Ace 45C 70 × 33 × 11 mm (R$ 209, [MLB2110421643](https://www.mercadolivre.com.br/p/MLB2110421643));
+  "3 vias" 76 × 56 × 6,8 mm (R$ 99,95); Leão 1100 mAh airsoft 2 células de 105 × 20 × 5,5 mm (R$ 149,90).
+  As duas de 20 mm de espessura caberiam se `BATTERY_2S` crescer de 14 para 20 mm na baia traseira.
+- **USB-C**: o projeto ainda não define se a porta é para carga da 2S ou só dados; carregar 2S por USB-C exige uma placa
+  carregadora de 2 células, que não está no BOM.
 Pi Zero, BNO055 e placa de servos ficam em trilhos / pinos impressos (sem M2,5 no BOM); furos exatos da CYD e
 da placa de servos ainda não foram medidos — a moldura prende a CYD pela borda do vidro.
