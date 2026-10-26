@@ -17,10 +17,11 @@ imprimir, montar, modificar e redistribuir o Cogu.
   ([ADR-001: forma do corpo](docs/decisions/ADR-001-body-shape.md)):
 
   ![Cogu completo em pé no MuJoCo](docs/renders/sim_full_robot_v0.png)
-- Primeira política de caminhada (PPO em MuJoCo Playground / MJX, 10 M passos no CPU) anda para frente
-  a 0,12 m/s sem cair — [vídeo](docs/renders/sim_walk_v0.mp4), detalhes em [sim/playground](sim/playground/README.md):
+- Primeira política de caminhada do robô completo (PPO em MuJoCo Playground / MJX, 10 M passos no CPU)
+  anda para frente a 0,11 m/s e sobrevive a 91 % dos episódios com empurrões —
+  [vídeo](docs/renders/sim_walk_v1.mp4), detalhes em [sim/playground](sim/playground/README.md):
 
-  ![Cogu andando na simulação](docs/renders/sim_walk_v0.png)
+  ![Cogu andando na simulação](docs/renders/sim_walk_v1.png)
 - Documento de decisões completo: [docs/decisions/ADR-000-project-brief.md](docs/decisions/ADR-000-project-brief.md)
 - Inspiração de stack: Open Duck Mini v2 / Microduck (Pollen Robotics).
 
@@ -131,9 +132,10 @@ not a nice-to-have.
 - Status: **"sim first" phase**. The complete robot — pelvis, two 5-DOF legs, body, collar and a 2-DOF
   cap — exists in build123d, exports to STL/STEP/MJCF and stands in MuJoCo at the digitigrade rest pose
   (see the render above; 325 mm tall, ≈ 1.32 kg; body-shape decision in
-  [docs/decisions/ADR-001-body-shape.md](docs/decisions/ADR-001-body-shape.md), Portuguese). A first walking policy
-  (PPO on MuJoCo Playground / MJX, 10 M steps on a laptop CPU) walks forward at 0.12 m/s without falling
-  ([video](docs/renders/sim_walk_v0.mp4), details in [sim/playground](sim/playground/README.md)).
+  [docs/decisions/ADR-001-body-shape.md](docs/decisions/ADR-001-body-shape.md), Portuguese). A first walking policy for
+  the complete robot (PPO on MuJoCo Playground / MJX, 10 M steps on a laptop CPU) walks forward at 0.11 m/s
+  and survives 91 % of pushed episodes ([video](docs/renders/sim_walk_v1.mp4), details in
+  [sim/playground](sim/playground/README.md)).
 - Full decision record (Portuguese): [docs/decisions/ADR-000-project-brief.md](docs/decisions/ADR-000-project-brief.md)
 - Stack inspiration: Open Duck Mini v2 / Microduck (Pollen Robotics).
 

@@ -16,10 +16,43 @@ e regenere com `uv run python -m cad.export`.
 | `randomize.py` | Domain randomization por env: atrito do chão, massas, carga extra na pelve, atrito/armature das juntas, kp/kv dos servos, offset de pose |
 | `train.py` | PPO (Brax) com seed fixa; salva checkpoints em `build/checkpoints/cogu_walk/<passo>/` e `progress.jsonl` |
 | `rollout.py` | Roda a política a partir do keyframe `rest` com um comando fixo e grava `build/videos/walk.mp4` |
+| `compare.py` | Compara checkpoints no modelo atual: distância em 8 s e taxa de queda sob empurrões |
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
 
-## Resultado v0 (2026-10-25)
+## Resultado v1 — robô completo (2026-10-26)
+
+`checkpoints/cogu_walk_v1/`: mesmos hiperparâmetros do v0, 10 M passos, seed 0, sobre o MJCF do commit
+16fd71b (corpo + colar + chapéu: 1,31 kg, CoM alto, IMU na posição da BNO055). O processo morreu sem erro
+a 4,5 M passos (pressão de memória na máquina) e foi retomado com `--restore` do checkpoint de 4,5 M;
+`progress.jsonl` concatena as duas metades. Rollout determinístico a partir de `rest`, 8 s:
+
+| Comando | v1 (robô completo) | v0 (só pernas) |
+|---|---|---|
+| `vx = 0,15 m/s` | 0,90 m (0,11 m/s), não cai — [vídeo](../../docs/renders/sim_walk_v1.mp4) | 0,94 m |
+| `vx = 0,25 m/s` | 1,32 m (0,17 m/s), não cai | 1,53 m |
+| `vx = 0` | parado (2 cm de deriva) | parado |
+| `vx = 0,1, ω_z = 0,8 rad/s` | gira sem cair | gira |
+
+`compare.py` no modelo completo (32 episódios de 10 s com empurrões e comandos aleatórios):
+
+| Checkpoint | 8 s a 0,15 m/s | quedas | duração média |
+|---|---|---|---|
+| v0 no robô completo | cai em 0,8 s | 100 % | 1,4 s |
+| **v1** | 0,97 m, não cai | **9 %** | 9,8 s |
+
+Os servos (kp 8, ±1,9 N·m) seguram o tronco de 690 g, mas com pouca folga: andando a 0,15 m/s os tornozelos
+encostam no limite de 1,9 N·m em 1,3 % dos passos e os joelhos chegam a 1,7 N·m (RMS geral 0,6 N·m). O STS3215
+real dá ~1,9 N·m só em stall; vale confirmar na identificação do atuador (BAM) antes de confiar nisso. A marcha
+continua curta e arrastada; a recompensa final (15,6) e a duração (8,9 s de 10 s) são um pouco melhores que
+as do v0 por causa do IMU mais alto, que dá um sinal de inclinação mais limpo.
+
+```bash
+uv run python sim/playground/rollout.py --checkpoint sim/playground/checkpoints/cogu_walk_v1
+uv run python sim/playground/compare.py sim/playground/checkpoints/cogu_walk_v0 sim/playground/checkpoints/cogu_walk_v1
+```
+
+## Resultado v0 — só pernas (2026-10-25)
 
 `checkpoints/cogu_walk_v0/`: 10 M passos de PPO, seed 0, 54 min no M1 Max (CPU, 1024 envs, 3,1 k passos/s),
 sobre o MJCF do commit b3df239. Rollout determinístico a partir do keyframe `rest`, 8 s:
