@@ -4,7 +4,7 @@ Quantidades para **duas pernas + corpo + colar + chapéu** (ADR-001). Tudo de pr
 
 | Item | Qtd | Spec | Onde |
 |---|---|---|---|
-| Servo Feetech STS3215 7,4 V (serial bus, 12 bit) | 12 | 3 quadril + joelho + tornozelo por perna, pitch + roll do chapéu. Vem com horn, disco traseiro e parafusos M2 | AliExpress (Feetech oficial), Waveshare (ST3215), RobotShop, Eckstein (EU), Core Electronics (AU) |
+| Servo Feetech STS3215 7,4 V (serial bus, 12 bit) | 12 | 3 quadril + joelho + tornozelo por perna, pitch + roll do chapéu. Vem com horn, disco traseiro e parafusos M2 | **BR:** Mercado Livre, kit 4× 7,4 V — [MLB7374017854](https://produto.mercadolivre.com.br/MLB-7374017854), R$ 452,31/kit em 25/10/2026 (3 kits = 12). Internacional: AliExpress (Feetech oficial), Waveshare (ST3215), RobotShop, Eckstein (EU), Core Electronics (AU) |
 | Placa controladora de servos serial (TTL) | 1 | Waveshare "Bus Servo Adapter" ou Feetech URT-1 | idem |
 | Rolamento 688ZZ | 12 | 8 × 16 × 5 mm, blindado (10 pernas + 2 pescoço) | qualquer loja de rolamentos / skate / AliExpress |
 | Inserto roscado a quente M3 | 11 | 4 pelve + 3 pescoço (corpo) + 4 moldura da tela (corpo). M3 × 5,7 mm, OD 4,6 mm | AliExpress, Amazon ("M3 heat set insert 5.7") |
@@ -21,5 +21,13 @@ Quantidades para **duas pernas + corpo + colar + chapéu** (ADR-001). Tudo de pr
 
 Parafusos de servo: só os **M2 originais** que vêm com cada STS3215 (8 para o corpo, 4 para o horn,
 4 para o disco traseiro). Até aqui só M3 × 8 é usado; o BOM completo do robô mantém apenas M3 × 8 / 12 / 16.
+
+Anúncio do Mercado Livre (conferido em 25/10/2026): STS3215 7,4 V, 19,5 kg·cm a 7,4 V, encoder magnético
+12 bits, redução 1/345, 5–8,4 V, TTL 1 Mbps — a mesma ficha do servo usado no CAD e na sim (±1,9 N·m).
+**Não** é a versão 12 V / 30 kg·cm. Vendedor Xinyi Yang Store, envio da China, máx. 5 kits por compra.
+A página lista impostos estimados (R$ 119,53 importação + R$ 117,08 ICMS por kit) sem deixar claro se já
+estão nos R$ 452,31: confirmar o total no checkout (R$ 113 ou R$ 172 por servo). Placa controladora não
+vem no kit; conteúdo (horn, disco, parafusos M2, cabo) conferir na chegada, pois a descrição está cortada.
+Para a fase "uma perna real" lembrar que uma perna usa 5 servos: 1 kit de 4 não basta.
 Pi Zero, BNO055 e placa de servos ficam em trilhos / pinos impressos (sem M2,5 no BOM); furos exatos da CYD e
 da placa de servos ainda não foram medidos — a moldura prende a CYD pela borda do vidro.
