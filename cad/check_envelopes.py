@@ -15,6 +15,7 @@ from build123d import Axis, Location, Part, Plane
 
 from cad import parameters as P
 from cad.parts import hip
+from cad.parts.back_hub import build_back_hub
 from cad.parts.foot import build_foot
 from cad.parts.link import build_shin, build_thigh
 
@@ -133,6 +134,20 @@ def main(argv=None) -> int:
     results["hip_yaw"] = sweep("hip_yaw", rng(-60, 60), t_yaw, 0.0)
 
     ok = True
+    # back hubs: the hub plate spins inside the hole of the proximal part's back wall at every joint
+    hub = build_back_hub().solid
+    hub_pairs = {
+        "hip_roll": (p.yaw, hub.rotate(Axis.Z, -90).moved(Location((hip.ROLL_AXIS_X, 0, hip.ROLL_AXIS_Z)))),
+        "hip_pitch": (p.roll, hub.moved(Location((hip.PITCH_AXIS_X, hip.PITCH_AXIS_Y, hip.PITCH_AXIS_Z)))),
+        "knee": (p.thigh, hub.moved(Location((0, 0, -P.THIGH_LENGTH)))),
+        "ankle": (p.shin, hub.moved(Location((0, 0, -P.SHIN_LENGTH)))),
+    }
+    print("\nback hub vs the housing it spins in:")
+    for j, (housing, h) in hub_pairs.items():
+        v = _vol(housing, h)
+        good = v < 0.01
+        ok &= good
+        print(f"  {j:10s}: overlap {v:5.2f} mm³  {'ok' if good else 'FAIL'}")
     print("\nparameters.JOINT_RANGES_DEG vs measured free interval (margin %.0f°):" % args.margin)
     for j, iv in results.items():
         want = P.JOINT_RANGES_DEG[j]

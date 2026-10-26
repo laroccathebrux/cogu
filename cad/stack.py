@@ -38,4 +38,8 @@ PADDLE_RADIUS = S.horn_disc_diameter / 2 + 3.0           # 12.6
 PROXIMAL_SERVO_SWEEP = (S.shaft_from_horn_end ** 2 + (S.body_width / 2) ** 2) ** 0.5  # ~16.0
 
 BACK_DISC_HOLE_D = S.back_disc_diameter + 2 * P.CLEARANCE_LOOSE + 1.0   # hole in the back wall (20.8)
+# The hub plate (y = HUB_PLATE_Y0..Y1) starts 0.45 mm inside the back wall (HOUSING_Y0 = -33.0 <
+# HUB_PLATE_Y1 = -32.55), so it spins inside that hole: its radius must clear it. (It used to be
+# back_disc/2 + 1 = 10.6 and rubbed the wall in all 12 joints — measured by check_envelopes.)
+HUB_PLATE_RADIUS = BACK_DISC_HOLE_D / 2 - P.CLEARANCE_LOOSE                 # 10.1
 HORN_HOLE_D = S.horn_disc_diameter + 2 * P.CLEARANCE_LOOSE + 1.0        # hole in a plate the horn passes through

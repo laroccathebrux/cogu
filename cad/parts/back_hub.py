@@ -16,7 +16,7 @@ S = P.SERVO
 
 
 def build_back_hub() -> CoguPart:
-    plate = Cylinder(S.back_disc_diameter / 2 + 1.0, P.BACK_HUB_PLATE_THICKNESS,
+    plate = Cylinder(K.HUB_PLATE_RADIUS, P.BACK_HUB_PLATE_THICKNESS,
                      align=(Align.CENTER, Align.CENTER, Align.MIN))
     stub = Cylinder(P.BEARING_688.stub_diameter / 2, P.BACK_HUB_STUB_LENGTH + 0.01,
                     align=(Align.CENTER, Align.CENTER, Align.MAX))
