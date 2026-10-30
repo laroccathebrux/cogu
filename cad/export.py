@@ -112,22 +112,19 @@ def _sole_box(parts: dict[str, CoguPart], mirrored: bool) -> tuple[list[float], 
     return [c * MM for c in centre], [h * MM for h in half]
 
 
-GEOM_CLASS = {"body": "shell", "cap": "cap", "bezel": "hidden", "collar": "hidden", "cap_bracket": "hidden"}
-# The training env (sim/playground) controls the 10 leg servos only: in the MJX variant the neck
-# bodies are emitted without joints (cap fixed at the rest pose), so action/observation sizes stay 10.
-FROZEN_IN_MJX = ("neck", "cap")
+GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell"}
 
 
 def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
-    """MJCF tree for the lower body.
+    """MJCF tree for the robot (pelvis, legs, hip cover, phone cradle and phone).
 
     mjx=False: every printed part is a collision mesh (faithful contacts, for `check_mjcf.py`
                and the interactive viewer).
     mjx=True : the training variant for MuJoCo Playground / MJX. Same bodies, joints, masses
                and actuators for the legs, but meshes are visual only and the only collision geometry
                is one box per foot sole (sole-floor and sole-sole contacts, nothing else), plus the
-               solver settings MJX likes. The neck is frozen (see FROZEN_IN_MJX). Both variants carry
-               the same IMU / foot sites and sensors.
+               solver settings MJX likes. Both variants carry the same IMU / foot sites, sensors and
+               cameras (`track` follows the robot, `phone_cam` is the phone's rear camera).
     """
     root = ET.Element("mujoco", model="cogu" + ("_mjx" if mjx else ""))
     ET.SubElement(root, "compiler", angle="degree", meshdir="meshes", autolimits="true")
@@ -149,15 +146,11 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
     else:
         ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
                       rgba="0.93 0.86 0.72 1", group="0")
-        # Thin shells: MuJoCo collides CONVEX HULLS, and the hull of a hollow body/cap would "collide" with the
-        # hip parts inside it. Shells therefore collide with the floor (bit 2) but never with the legs (bit 1);
-        # the exact shell-vs-leg clearance is checked by cad/check_envelopes.py instead.
+        # Hollow parts: MuJoCo collides CONVEX HULLS, and the hull of the open-bottom hip cover would "collide"
+        # with whatever sits under it. Cover and cradle therefore collide with the floor (bit 2) but never with
+        # the legs (bit 1). Nothing of the legs swings above the pelvis plate (z > 0), where they live.
         shell = ET.SubElement(default, "default", **{"class": "shell"})
-        ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.93 0.86 0.72 1")
-        cap = ET.SubElement(default, "default", **{"class": "cap"})
-        ET.SubElement(cap, "geom", contype="2", conaffinity="2", rgba="0.86 0.36 0.30 1")
-        hidden = ET.SubElement(default, "default", **{"class": "hidden"})     # inside the body / cap: visual only
-        ET.SubElement(hidden, "geom", contype="0", conaffinity="0")
+        ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.20 0.20 0.22 1")
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
@@ -185,13 +178,17 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         if root_body:
             el.set("pos", f"0 0 {pelvis_h:.5f}")
             ET.SubElement(el, "freejoint", name="root")
-            # IMU frame: where the BNO055 sits in the body, axes aligned with the pelvis
+            # IMU frame: on the spine board inside the hip cover, axes aligned with the pelvis
             ET.SubElement(el, "site", name="imu", pos=_fmt([v * MM for v in P.IMU_POS]))
+            # the phone's rear camera, looking forward (+X); image right = robot's right (−Y)
+            from cad.parts import phone_mount
+            ET.SubElement(el, "camera", name="phone_cam", pos=_fmt([v * MM for v in phone_mount.phone_camera_pos()]),
+                          xyaxes="0 -1 0 0 0 1", fovy="70")
             ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.5 0.1",
                           xyaxes="1 0 0 0 0.25 1")
             ET.SubElement(el, "light", name="track_light", mode="trackcom", pos="0.2 -0.3 1.0", dir="-0.2 0.3 -1",
                           diffuse="0.7 0.7 0.7")
-        elif body.joint and not (mjx and body.name in FROZEN_IN_MJX):
+        elif body.joint:
             ET.SubElement(el, "joint", name=body.joint, type="hinge", axis=_fmt(body.joint_axis),
                           range=_fmt(body.joint_range_deg))
             joints.append((body.joint, body.joint_range_deg))
@@ -209,8 +206,9 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                           pos=_fmt([v * MM for v in inst.pos]), **extra)
         for ref in assembly.reference_solids():
             if ref.body == body.name:
+                touch = "2" if (ref.collide and not mjx) else "0"     # the phone hits the floor in falls
                 ET.SubElement(el, "geom", name=f"ref_{ref.name}", mesh=mesh_names[(f"ref:{ref.name}", False)],
-                              contype="0", conaffinity="0", group="2", rgba=ref.rgba)
+                              contype=touch, conaffinity=touch, group="0" if touch != "0" else "2", rgba=ref.rgba)
         mass, com, inertia = body_inertial(instances)
         ET.SubElement(el, "inertial", pos=_fmt(com), mass=f"{mass:.5f}",
                       fullinertia=_fmt([inertia[0, 0], inertia[1, 1], inertia[2, 2],
@@ -262,8 +260,8 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
 
 def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> list[Path]:
     """Write `cogu_lower_body.xml` (full collision meshes) and `cogu_lower_body_mjx.xml`
-    (training variant) sharing one `meshes/` folder. The file names predate the body and cap
-    (sim/playground reads them); both now contain the complete robot."""
+    (training variant) sharing one `meshes/` folder. The file names are historical
+    (sim/playground reads them); both contain the complete robot with the phone."""
     mesh_names = export_meshes(parts, out_dir / "meshes")
     written = []
     for mjx, fname in ((False, "cogu_lower_body.xml"), (True, "cogu_lower_body_mjx.xml")):

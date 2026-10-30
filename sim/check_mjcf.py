@@ -59,8 +59,8 @@ def main() -> int:
             renderer = mujoco.Renderer(model, height=720, width=960)
             cam = mujoco.MjvCamera()
             cam.type = mujoco.mjtCamera.mjCAMERA_FREE
-            cam.lookat[:] = [0, 0, 0.09]
-            cam.distance, cam.azimuth, cam.elevation = 0.55, 135, -15
+            cam.lookat[:] = [0, 0, 0.19]          # mid-height of the ~400 mm robot with the phone
+            cam.distance, cam.azimuth, cam.elevation = 0.85, 135, -12
             renderer.update_scene(data, camera=cam)
             import PIL.Image
             PIL.Image.fromarray(renderer.render()).save(render_to)

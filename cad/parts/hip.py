@@ -44,8 +44,8 @@ LEG_LATERAL_OFFSET = max(0.0, (FORK_SPAN + P.LEG_GAP) / 2 - P.HIP_SPACING / 2)  
 PITCH_AXIS_Y = -(K.HORN_PLATE_Y1 + K.BEARING_PLATE_Y0) / 2 - LEG_LATERAL_OFFSET    # 17.8 - 10.5 = 7.3
 
 
-def body_boss_positions() -> list[tuple[float, float]]:
-    """(x, y) of the 4 bosses the body shell bolts onto (insert tops at z = BOSS_TOP_Z)."""
+def cover_boss_positions() -> list[tuple[float, float]]:
+    """(x, y) of the 4 bosses the hip cover bolts onto (insert tops at z = BOSS_TOP_Z)."""
     return [(bx, by) for bx in (P.PELVIS_BOSS_X, -P.PELVIS_BOSS_X) for by in (P.PELVIS_BOSS_Y, -P.PELVIS_BOSS_Y)]
 
 
@@ -54,12 +54,12 @@ BOSS_TOP_Z = P.INSERT_M3.hole_depth + 2.0      # 8.5
 
 def build_pelvis() -> CoguPart:
     """Flat plate holding the two yaw servos (bodies up, horns down) with 4 M3 inserts
-    on bosses to bolt the body shell on. Boss positions clear the yaw servo bodies."""
+    on bosses to bolt the hip cover on. Boss positions clear the yaw servo bodies."""
     plate = Box(P.PELVIS_DEPTH, P.PELVIS_WIDTH, PELVIS_THICKNESS, align=(Align.CENTER, Align.CENTER, Align.MAX))
     plate = plate.fillet(6.0, plate.edges().filter_by(Axis.Z))
-    # corners trimmed so the plate sits inside the body shell (ADR-001)
+    # corners trimmed (they would only catch on things)
     plate = plate & Cylinder(P.PELVIS_CORNER_TRIM_R, 40, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
-        Location((P.BODY_AXIS_X, 0, 0)))
+        Location((P.PELVIS_TRIM_X, 0, 0)))
     boss_h = P.INSERT_M3.hole_depth + 2.0
     boss_r = P.INSERT_M3.hole_diameter / 2 + P.INSERT_M3.wall_min + 0.3
     inserts: list[InsertHole] = []

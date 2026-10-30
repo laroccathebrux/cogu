@@ -1,6 +1,6 @@
 # ADR-001 — Forma do corpo, colar e chapéu
 
-Data: 2026-10-25. Status: aceita (v0, sim primeiro). Complementa o brief (ADR-000 §4).
+Data: 2026-10-25. Status: **substituída pelo [ADR-002](ADR-002-phone-brain.md)** em 2026-10-30 (celular como cérebro; corpo, colar e chapéu saíram do modelo, último commit com eles: `4432d4c`). Complementava o brief (ADR-000 §4).
 
 ## Problema
 

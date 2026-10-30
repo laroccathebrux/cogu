@@ -11,16 +11,11 @@ from dataclasses import dataclass
 # ---------------------------------------------------------------------------
 # Robot anatomy (§4)
 # ---------------------------------------------------------------------------
-CAP_DIAMETER = 160.0        # ceiling of the A1 Mini bed (with brim margin)
-CAP_HEIGHT = 55.0
-COLLAR_HEIGHT = 18.0
-BODY_DIAMETER = 110.0       # at the equator; the skirt flares to 115. Brief said ~95: see docs/decisions/ADR-001-body-shape.md
 THIGH_LENGTH = 60.0         # hip-pitch axis -> knee axis
 SHIN_LENGTH = 60.0          # knee axis -> ankle axis
 FOOT_HEIGHT = 26.0          # ground -> ankle axis (brief said 15; the shin housing corner sweeps r≈19.8 mm around the ankle, plus 5 mm sole)
 HIP_SPACING = 40.0          # distance between the two hip-yaw axes
 LEG_GAP = 10.0              # minimum lateral gap between the two legs' inner fork plates at rest
-TOTAL_HEIGHT_TARGET = 280.0
 MASS_TARGET_G = 1200.0
 
 # Digitigrade ("gull-wing" / bird) rest pose: thigh goes BACKWARD and down from the hip,
@@ -193,9 +188,10 @@ PELVIS_DEPTH = 50.0
 PELVIS_THICKNESS = 6.0
 YAW_LINK_THICKNESS = 4.0
 
-PELVIS_CORNER_TRIM_R = 50.0     # plate corners trimmed to this radius about the body axis
-PELVIS_BOSS_Y = 37.7            # body-screw bosses (Ø9.2) start 0.7 mm outboard of the servo bodies
-PELVIS_BOSS_X = 17.0
+PELVIS_TRIM_X = -5.0            # plate corners trimmed to PELVIS_CORNER_TRIM_R about this vertical axis
+PELVIS_CORNER_TRIM_R = 50.0
+PELVIS_BOSS_Y = 37.7            # hip-cover screw bosses (Ø9.2) start 0.7 mm outboard of the yaw servo bodies
+PELVIS_BOSS_X = 8.0             # close to the yaw axes so the cover's front battery bay is free (x > 13)
 
 # ---------------------------------------------------------------------------
 # Foot
@@ -209,78 +205,44 @@ FOOT_SWITCH_SIZE = (6.0, 6.0, 3.5)   # pocket for a 6×6 mm tactile switch, 2 pe
 FOOT_SWITCHES_PER_FOOT = 2
 
 # ---------------------------------------------------------------------------
-# Body shell (ADR-001). Pelvis frame: origin between the hip-yaw axes on the yaw servos'
-# horn face, +Z up, +X forward. The pelvis sits INSIDE the shell; the shell is open at the
-# bottom (skirt rim) so the hip stack can swing. Numbers come from the measured envelope
-# of the hip hardware over JOINT_RANGES_DEG (cad/check_envelopes.py --body).
+# Phone mount (ADR-002). Pelvis frame: origin between the hip-yaw axes on the yaw servos'
+# horn face, +Z up, +X forward. Above the pelvis plate (z > 0) nothing of the legs swings,
+# so the hip cover and the phone cradle only have to clear the two yaw servo bodies
+# (x −35.1 … +10.1, |y| 7.6 … 32.4, z ≤ 28.75; back discs Ø19.2 on the yaw axes up to z 32.55).
 # ---------------------------------------------------------------------------
-BODY_AXIS_X = -5.0              # vertical axis of the shell, slightly behind the hip-yaw axes
-BODY_WALL = 2.0                 # shell wall (5 perimeters); ribs add stiffness
-BODY_RIM_Z = -37.0              # skirt rim: 2.4 mm above the highest point the thigh reaches at hip_pitch -85°; the skirt
-                                # flares to Ø115 there because the hip-roll arms reach r = 54.4 mm at roll -35° / yaw +30°
-BODY_NECK_Z = 46.0              # top of the shell: flat neck ledge the collar bolts onto
-BODY_NECK_HOLE_R = 36.3         # opening in the ledge: the collar ring (inner R 36) and the neck bracket swing inside it
-BODY_NECK_LEDGE_R = 45.0        # outer radius of the flat ledge (shell profile reaches it)
-BODY_NECK_INSERT_R = 40.0       # 3 M3 inserts under the ledge, just outside the collar ring
-# outer profile (z, radius): spline through these, from the rim to the ledge
-BODY_PROFILE = ((-37.0, 57.5), (-28.0, 56.5), (-16.0, 55.5), (-4.0, 55.0), (8.0, 54.8),
-                (20.0, 53.4), (30.0, 51.0), (38.0, 47.2), (43.0, 46.0), (46.0, 45.0))
-BODY_RIBS = 5                   # vertical ribs inside the shell (1.2 × 4 mm), above BODY_RIB_Z0 only, 75°..285° (clear of the visor)
-BODY_RIB_Z0 = -8.0              # the hip-roll paddles sweep r ≤ 46 mm below this height: the skirt stays smooth there
-BODY_RIB_SIZE = (1.2, 4.0)
-BODY_SCREW_LENGTH = 8.0         # M3 × 8 through the 3 mm ears into the pelvis inserts
-BODY_INSERTS_NECK = 3           # M3 inserts under the neck ledge for the collar
-BODY_INSERTS_FACE = 4           # M3 inserts in the face box for the bezel
-# Face: the CYD's 86 × 50 PCB does not fit inside a Ø110 sphere anywhere in front of the hip stack,
-# so the screen lives in a flat visor box as wide as the body, standing proud of the sphere at its
-# sides (ADR-001). The box starts behind the PCB and outside the hip-roll paddles' sweep (x ≥ 28).
-BODY_FACE_CENTRE_Z = 1.0        # centre of the screen on the shell (visor bottom-rear corner stays above the hip-roll sweep)
-BODY_FACE_X = 42.0 + 1.6 + 4.5  # 48.1: front of the glass = CYD_PCB_X + PCB + glass, where the bezel sits (sphere apex at x = 50)
-BODY_FACE_TILT_DEG = 8.0        # the face looks slightly up (people look down at a 32 cm robot)
-BODY_FACE_WIDTH = 104.0         # visor outline (y): holds the PCB with its off-centre ESP32 end
-BODY_FACE_HEIGHT = 71.0         # visor outline (z): the 4 bezel bosses sit above and below the PCB
-BODY_FACE_BOX_X0 = 28.0         # rear of the visor box (measured along the face normal like BODY_FACE_X)
-BODY_FACE_CORNER_R = 12.0
-BODY_SWITCH_HOLE_D = 12.0       # rocker/push power switch, rear right
-BODY_USBC_SLOT = (10.0, 5.0)    # USB-C panel-mount slot, rear right
+# The phone the robot carries. Defaults: an iPhone 15/16-class phone without a case; edit to
+# yours (the cradle is generated from these numbers). The training env randomises mass and
+# centre of mass over PHONE_ENVELOPE.
+PHONE = dict(height=147.6, width=71.6, thickness=8.3, mass_g=190.0, corner_r=9.0)
+PHONE_ENVELOPE = dict(height=(145.0, 165.0), width=(70.0, 78.0), thickness=(7.5, 9.5), mass_g=(165.0, 230.0))
+PHONE_X = 12.0                  # phone mid-plane: ahead of the yaw axes, which pulls the CoM over the feet
+PHONE_CAMERA = dict(from_top=22.0, from_left_edge=20.0, bump=(36.0, 36.0, 3.0))   # rear camera module, robot's left
+# Hip cover: open-bottom box over the yaw servos, bolted to the 4 pelvis bosses through screw tubes
+# (M3 × 8 from the top, heads at the bottom of Ø6.5 counterbores). Holds the battery (front) and the
+# "spinal cord" board (rear).
+COVER_X = (-48.5, 34.0)         # rear / front outer faces
+COVER_TOP_Z = 40.0
+COVER_WALL = 2.4
+COVER_DECK = 3.0
+COVER_CORNER_R = 10.0
+COVER_TUBE_WEB = 3.0            # material under the screw head, above the pelvis boss
+COVER_CRADLE_INSERTS_X = (-14.0, 0.0)   # 2 M3 inserts on the centre line (between the yaw servos)
+COVER_SWITCH = dict(d=12.0, x=-41.0, z=22.0)   # power switch through the left wall, behind the yaw servos
+# Phone cradle: base plate on the cover deck + two C-rails gripping the phone's long edges.
+# The phone slides in from the top; the top third stays free for the camera module and buttons.
+CRADLE_BASE = 6.0
+CRADLE_BASE_X = (-20.0, 22.0)
+CRADLE_RAIL_HEIGHT = 85.0       # above the base
+CRADLE_WALL = 2.4
+CRADLE_LIP = 3.0                # rail lips overlap the phone faces by this much
+CRADLE_CLEARANCE = 0.4
+CRADLE_CABLE_SLOT = 16.0        # slot under the phone's USB-C port
 
-# Electronics envelopes (mm) and masses (g). Positions are in the pelvis frame.
-CYD = dict(pcb=(86.0, 50.0, 1.6), glass_length=69.0, glass_thickness=4.5, back_components=7.0,
-           active=(57.6, 43.2), active_centre_from_glass_end=34.6, mass_g=55.0)
-CYD_ACTIVE_CENTRE_Y = -3.0      # the active area is off-centre on the PCB; 3 mm keeps the ESP32 end inside the shell
-CYD_PCB_X = 42.0                # rear face of the PCB, measured along the (tilted) face normal like BODY_FACE_X
-PI_ZERO = dict(size=(65.0, 30.0, 1.6), holes=(58.0, 23.0), hole_d=2.75, components=5.0, mass_g=11.0)
-PI_ZERO_X = 16.5                # PCB plane, standing vertically in front of the yaw servos, component side +X (0.7 mm ahead of the neck housing)
-PI_ZERO_Z = 26.0                # centre height: dropped in through the neck hole, rests on tabs above the pelvis bosses
-BNO055 = dict(size=(20.0, 27.0, 4.0), holes=20.0, hole_d=2.5, mass_g=3.0)   # Adafruit-style breakout, 2 holes 20 mm apart
-IMU_POS = (-44.0, 0.0, 30.0)    # BNO055 centre (also the MJCF `imu` site): rear ledge above the battery
-SERVO_BOARD = dict(size=(42.0, 33.0, 7.0), holes=(37.0, 28.0), hole_d=2.5, mass_g=12.0)  # Waveshare Bus Servo Adapter (A), DC jack removed
-SERVO_BOARD_X = 30.0            # standing between the Pi and the screen, centre of its 7 mm envelope (PCB at the rear)
-SERVO_BOARD_Z = 19.0            # rails start above the pelvis plate
-BATTERY_2S = dict(size=(14.0, 31.0, 58.0), mass_g=60.0)   # x × y × z, standing in the rear bay (2S 1000 mAh soft pack)
-BATTERY_POS = (-43.0, 0.0, -6.0)
-MISC_BODY_MASS_G = 40.0         # 5 V regulator, switch, USB-C, cables
-CAP_SENSORS_MASS_G = 25.0       # camera, VL53L5CX ToF, LED ring, cables
-
-# ---------------------------------------------------------------------------
-# Neck (2 DOF under the cap: pitch servo in the collar, roll servo in the bracket above)
-# ---------------------------------------------------------------------------
-COLLAR_INNER_R = 36.0           # the bracket's paddle discs (12.6 mm about an axis 8 mm ahead of the body axis) swing inside
-COLLAR_OUTER_R = 39.0
-COLLAR_Z0 = BODY_NECK_Z                      # 46: sits on the neck ledge
-COLLAR_Z1 = COLLAR_Z0 + COLLAR_HEIGHT        # 64
-COLLAR_DECK_THICKNESS = 3.0
-NECK_PITCH_AXIS_Z = 49.0        # housing bottom (−15.06) clears the yaw servos' back discs (+32.55)
-NECK_PITCH_AXIS_X_OFFSET = 8.0  # pitch axis ahead of the body axis: trades housing rear overhang against paddle reach inside the collar
-NECK_ARM_HALF_WIDTH = 8.0       # bracket arms narrow above the paddle disc so they clear the collar ring at ±20°
-NECK_PITCH_RANGE_DEG = (-15.0, 15.0)   # positive = cap nose down (axis −Y, like the hip pitch). Limited by the cap rim
-NECK_ROLL_RANGE_DEG = (-12.0, 12.0)    # positive = cap rolls to the robot's left (axis +X).  vs the visor's top corners
-CAP_PADDLE_FLAT = 10.6          # the cap's fork paddles are cut flat this far below the roll axis (688ZZ seat r 8.1 + 2.5 mm)
-NECK_BEAM_CLEARANCE = 25.0      # bracket beam underside above the pitch axis: its end corners dip when pitched ±20° and must clear the pitch housing top (+15.06)
-CAP_RIM_Z = COLLAR_Z1 + 1.0     # 65: cap rim just above the collar
-CAP_WALL = 1.6
-CAP_RIBS = 8                    # radial ribs, outer half of the dome only (the neck bracket swings under the centre)
-CAP_RIB_SIZE = (1.2, 5.0)
-CAP_SPOTS = ((0.0, 0.52, 15.0), (125.0, 0.62, 12.0), (235.0, 0.45, 10.0))   # (azimuth °, r/R, radius) cream spots
-CAP_SPOT_DEPTH = 0.8            # recess for a press-in cream disc (or colour change when printed dome-down)
-CAP_SLOT = dict(z0=6.0, height=4.0, depth=1.5, window_half_angle=35.0)   # 360° sensor groove; through at the front
+# Electronics (bought parts). Positions are box centres in the pelvis frame.
+BATTERY_2S = dict(size=(16.0, 70.0, 34.0), mass_g=65.0)   # x × y × z: 2S 1000 mAh pack on its long edge, front bay
+BATTERY_POS = (21.5, 0.0, 19.0)
+BATTERY_CAGE_WALL = 1.6
+SPINE = dict(size=(9.0, 40.0, 30.0), mass_g=25.0)   # ESP32-S3 + 6-axis IMU + bus-servo interface + 5 V buck, standing at the rear
+SPINE_POS = (-41.5, 0.0, 19.0)
+IMU_POS = SPINE_POS             # the IMU sits on the spine board (also the MJCF `imu` site)
+MISC_ELECTRONICS_MASS_G = 20.0  # switch, fuse, cables

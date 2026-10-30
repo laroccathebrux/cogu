@@ -72,6 +72,37 @@ preso em pé sobre uma pelve simples, com as pernas à mostra.
 4. **Tela sem rosto.** Se um dia quiser expressão, a tela pode ser virada para a frente num suporte
    giratório, abrindo mão da câmera traseira.
 
+## Atualização 2026-10-30
+
+**Fase só de simulação.** Nada é impresso nem comprado até o robô andar bem no MuJoCo. Referências
+de trabalho (papers, Open Duck Playground, BAM, imitação): `docs/references/mujoco_biped_walking_refs.md`.
+
+**iPhone e Android.** O projeto atende os dois. O que é aberto e documentado é o protocolo entre o
+celular e a medula (BLE ou Wi-Fi), não um aplicativo de uma plataforma. O primeiro protótipo usa o
+iPhone do autor; o suporte e a simulação cobrem o envelope de celulares acima. A medula ESP32 é o
+que torna isso possível: o iPhone não precisa de cabo nem de adaptador serial.
+
+**CAD feito** (`cad/parts/phone_mount.py`), substituindo corpo, colar, chapéu e moldura:
+
+- **Tampa do quadril** (`hip_cover`): caixa impressa aberta embaixo, sobre os servos de yaw, presa
+  aos 4 bosses da pelve por tubos de parafuso (M3 × 8). Baia frontal com gaiola para a bateria 2S;
+  baia traseira para a placa da medula; furo da chave liga/desliga; 2 insertos M3 para o berço.
+  Impressa com o tampo na mesa, sem suporte. 69 g impressos.
+- **Berço do celular** (`phone_cradle`): base + dois trilhos em C que seguram as bordas longas do
+  celular, que entra por cima; o terço superior fica livre para o bloco de câmeras. Gerado a partir
+  de `parameters.PHONE` (padrão: iPhone 15/16 sem capinha, 147,6 × 71,6 × 8,3 mm, 190 g):
+  reimprime-se para outro celular. Trilhos são extrusões retas, sem suporte. 19 g impressos.
+- **Simulação:** celular, bateria e medula entram como massas no corpo da pelve; o celular colide
+  com o chão no modelo completo; câmera `phone_cam` na posição da câmera traseira (dá para ver o
+  que o robô "enxerga"). A randomização cobre massa (−40…+55 g) e centro de massa (±4–6 mm) da carga.
+
+Resultado: **1,13 kg, 399 mm**, em pé no MuJoCo (2,6° de inclinação após 3 s), centro de massa
+8 mm atrás do eixo do quadril, 173 mm acima do chão.
+
+**Em aberto: giro de 360° do celular.** Um 11º servo sob o berço, com o eixo passando pelo centro do
+celular, deixaria o robô virar a tela (rosto, câmera frontal) ou as câmeras traseiras para onde anda,
+sem mudar o centro de massa. A ligação sem fio evita cabo torcendo. Custo: +55 g, ~+35 mm de altura.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

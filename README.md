@@ -11,6 +11,7 @@ impressora FDM comum (referência: Bambu Lab A1 Mini).
 Reprodutibilidade aqui é **requisito de engenharia**, não um detalhe: qualquer pessoa deve conseguir
 imprimir, montar, modificar e redistribuir o Cogu.
 
+- **Mudança de rumo (2026-10-30, [ADR-002](docs/decisions/ADR-002-phone-brain.md)):** o cogumelo saiu. O robô agora usa um **celular como cérebro**, em pé sobre a pelve com as câmeras traseiras para a frente, e mantém as pernas digitígradas como identidade. Fase só de simulação até ele andar bem; o texto abaixo ainda descreve o cogumelo e será reescrito. Referências de trabalho: [docs/references](docs/references/mujoco_biped_walking_refs.md).
 - Status: **fase "sim primeiro"**. O robô completo — pelve, duas pernas de 5 DOF, corpo, colar e chapéu
   com 2 DOF — existe em build123d, exporta STL/STEP/MJCF e fica em pé no MuJoCo na pose de repouso
   digitígrada (joelho para trás). Altura 325 mm, massa estimada 1,32 kg
@@ -129,6 +130,7 @@ It is **open source and open hardware**, with an original design that is **100% 
 with a common FDM printer (reference: Bambu Lab A1 Mini). Reproducibility is an engineering requirement,
 not a nice-to-have.
 
+- **Change of direction (2026-10-30, [ADR-002](docs/decisions/ADR-002-phone-brain.md), Portuguese):** the mushroom is gone. The robot now uses a **phone as its brain**, standing on the pelvis with the rear cameras facing forward, and keeps the digitigrade legs as its identity. Simulation-only until it walks well; the text below still describes the mushroom and will be rewritten.
 - Status: **"sim first" phase**. The complete robot — pelvis, two 5-DOF legs, body, collar and a 2-DOF
   cap — exists in build123d, exports to STL/STEP/MJCF and stands in MuJoCo at the digitigrade rest pose
   (see the render above; 325 mm tall, ≈ 1.32 kg; body-shape decision in

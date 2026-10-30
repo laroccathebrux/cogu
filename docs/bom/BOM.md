@@ -1,5 +1,7 @@
 # BOM — robô completo (v0, fase "sim primeiro")
 
+> **Desatualizado desde o [ADR-002](../decisions/ADR-002-phone-brain.md) (2026-10-30).** O robô agora usa um celular como cérebro: saem CYD, Pi Zero, câmera, ToF, anel de LEDs, BNO055 e os 2 servos do pescoço (ficam 10 servos); entram uma placa ESP32-S3 com IMU de 6 eixos e interface do barramento dos servos, e o berço do celular. O projeto está em fase só de simulação: este BOM será refeito quando o robô andar bem no MuJoCo.
+
 Quantidades para **duas pernas + corpo + colar + chapéu** (ADR-001). Tudo de prateleira; alternativas por região na última coluna.
 
 | Item | Qtd | Spec | Onde |
