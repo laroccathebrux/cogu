@@ -260,54 +260,80 @@ def build_guard_frame() -> CoguPart:
 
 def build_guard_bubble() -> CoguPart:
     """Egg of printed ribs around the phone (like a bubble-football suit): meridian ribs from a base ring on
-    the hip cover up to the top, an equator hoop, a gap in front of the rear cameras."""
-    import math
+    the hip cover up to a small crown, an equator hoop, wide gaps between the ribs (the rear cameras look
+    through the front one).
+
+    Built as ONE fused solid: the shell is intersected once with a union of plain boxes (rib slabs, hoop,
+    base and crown bands). Two other ways failed silently: a union of the curved pieces lost ~45 % of the
+    volume, and slabs along the ellipsoid's y axis came out empty when cut one by one; the result is checked
+    against a Monte Carlo volume of the same analytic shape. For printing it is cut at the first hoop into a
+    lower bowl (no supports) and an upper dome; the TPU hoop tyre, whose lips grip the hoop's top and bottom
+    edges, clamps the two halves together."""
     from build123d import Sphere, scale
 
     g = P.GUARD_BUBBLE
     rx, rz, wall = g["radius_xy"], g["radius_z"], g["wall"]
-    centre = Location((g["center_x"], 0.0, g["center_z"]))
-    outer = scale(Sphere(1.0), (rx, rx, rz)).moved(centre)
-    inner = scale(Sphere(1.0), (rx - wall, rx - wall, rz - wall)).moved(centre)
-    shell = outer - inner
-    z_base = P.COVER_TOP_Z
-    keep = Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
-    shell = shell & keep                                                   # sits on the hip cover deck
-    # Kept as separate solids (a Compound), the way they will be printed. A boolean union of the
-    # pieces silently lost ~45 % of the volume here (near-tangent faces on the ellipsoid).
-    pieces: list[Part] = []
-    # One rib is cut at 30° (at the origin) and copied around: OCC returns an EMPTY intersection when the
-    # cutting slab lies along the ellipsoid's y axis (90° / 270°), which silently dropped two ribs.
-    shell0 = scale(Sphere(1.0), (rx, rx, rz)) - scale(Sphere(1.0), (rx - wall, rx - wall, rz - wall))
-    slab = Box(2 * rx + 20, g["rib_width"], 2 * rz + 20, align=(Align.MIN, Align.CENTER, Align.CENTER)).rotate(Axis.Z, 30)
-    rib_ref = shell0 & slab
-    for az in g["rib_azimuths"]:                                           # meridian ribs
-        rib = rib_ref.rotate(Axis.Z, az - 30).moved(centre) & keep
-        if rib.volume < 1.0:
-            raise RuntimeError(f"bubble rib at {az}° came out empty")
-        pieces.append(rib)
-    for hz in g["hoop_z"]:                                                 # horizontal hoops
-        band = Box(400, 400, g["hoop_height"], align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
-            Location((0, 0, hz)))
-        pieces.append(shell & band)
-    base = Box(400, 400, g["base_ring"], align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
-    pieces.append(shell & base)
-    top_z = g["center_z"] + rz - 10.0                                     # small crown where the ribs meet
-    crown = Box(400, 400, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, top_z)))
-    pieces.append(shell & crown)
-    solids = [so for pc in pieces for so in pc.solids()]
-    pieces = Part(Compound(children=solids).wrapped)
-    n_pieces = 2 * len(g["rib_azimuths"]) + 2
+    cz = g["center_z"]
+    z_base = P.COVER_TOP_Z - cz                                            # all in the ellipsoid's frame
+    crown_z = rz - 10.0                                                    # small crown where the ribs meet
+    shell = scale(Sphere(1.0), (rx, rx, rz)) - scale(Sphere(1.0), (rx - wall, rx - wall, rz - wall))
+    mask = Box(400, 400, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, crown_z)))
+    mask = mask + Box(400, 400, g["base_ring"], align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+        Location((0, 0, z_base)))
+    for hz in g["hoop_z"]:
+        mask = mask + Box(400, 400, g["hoop_height"]).moved(Location((0, 0, hz - cz)))
+    for az in g["rib_azimuths"]:
+        mask = mask + Box(rx + 20, g["rib_width"], 2 * rz + 20,
+                          align=(Align.MIN, Align.CENTER, Align.CENTER)).rotate(Axis.Z, az)
+    above_deck = Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
+    fused = shell & mask & above_deck
+    expected = _bubble_volume_mc()
+    if len(fused.solids()) != 1 or abs(fused.volume - expected) > 0.03 * expected:
+        raise RuntimeError(f"bubble: {len(fused.solids())} solids, {fused.volume:.0f} mm3, expected ~{expected:.0f} mm3")
+
+    cut = (g["hoop_z"][0] if g["hoop_z"] else cz) - cz
+    lower = fused & Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MAX)).moved(Location((0, 0, cut)))
+    upper = fused & Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, cut)))
+    if abs(lower.volume + upper.volume - fused.volume) > 0.01 * fused.volume:
+        raise RuntimeError("bubble: the split at the hoop lost volume")
+    centre = Location((g["center_x"], 0.0, cz))
+    lower, upper = lower.moved(centre), upper.moved(centre)
+    flat = Rotation(0, 0, 0)
     return CoguPart(
         name="phone_guard_bubble",
-        solid=pieces,
+        solid=Part(Compound(children=[lower, upper]).wrapped),
         material="PCTG",
         density_g_cm3=P.PCTG_DENSITY_G_CM3,
-        print_rotation=Rotation(0, 0, 0),
-        print_notes=f"Concept: rib cage around the phone, printed as ~{n_pieces} pieces (ribs split at the hoop).",
+        print_rotation=flat,
+        print_pieces=[("lower", lower, flat), ("upper", upper, flat)],
+        print_notes="Two pieces split at the hoop. Lower bowl: base ring on the bed, no supports (walls lean out "
+                    "≤ 36°). Upper dome: cut face on the bed, tree supports only under the crown and the top "
+                    "of the ribs (steeper than 45° above ~80 mm). 4 walls (the shell is 3 mm). The TPU hoop "
+                    "tyre clamps the halves; a drop of CA glue on the joint is optional.",
         infill_factor=0.95,
-        printed_in_pieces=n_pieces,
     )
+
+
+def _bubble_volume_mc(n: int = 2_000_000) -> float:
+    """Volume of the rib cage from its analytic definition (Monte Carlo, ±~0.7 %), to catch OCC booleans that
+    silently drop material."""
+    import math
+
+    import numpy as np
+
+    g = P.GUARD_BUBBLE
+    rx, rz, wall, cz, w = g["radius_xy"], g["radius_z"], g["wall"], g["center_z"], g["rib_width"]
+    z0 = P.COVER_TOP_Z - cz
+    lo, hi = np.array([-rx, -rx, z0]), np.array([rx, rx, rz])
+    x, y, z = np.random.default_rng(0).uniform(lo, hi, size=(n, 3)).T
+    shell = ((x * x + y * y) / rx**2 + z * z / rz**2 <= 1) & ~((x * x + y * y) / (rx - wall)**2 + z * z / (rz - wall)**2 < 1)
+    keep = (z >= rz - 10.0) | (z <= z0 + g["base_ring"])
+    for hz in g["hoop_z"]:
+        keep |= np.abs(z - (hz - cz)) <= g["hoop_height"] / 2
+    for az in g["rib_azimuths"]:
+        a = math.radians(az)
+        keep |= (x * math.cos(a) + y * math.sin(a) >= 0) & (np.abs(-x * math.sin(a) + y * math.cos(a)) <= w / 2)
+    return float(np.prod(hi - lo) * (shell & keep).mean())
 
 
 GUARDS = {"frame": build_guard_frame, "bubble": build_guard_bubble}
@@ -334,7 +360,9 @@ def build_guard_tpu() -> CoguPart:
     sleeve_shell = _ellipsoid(tt) - _ellipsoid(0.0)              # outside the PETG/PCTG surface
     lip_shell = _ellipsoid(0.0) - _ellipsoid(-min(lip, wall))      # over the part's edges, inside its outline
     pieces: list[Part] = []
-    for hz in g["hoop_z"]:
+    names: list[str] = []
+    for i, hz in enumerate(g["hoop_z"]):
+        names.append(f"hoop_tyre{i + 1 if len(g['hoop_z']) > 1 else ''}")
         h = g["hoop_height"]
         tyre = (sleeve_shell & _zband(hz - h / 2 - tt, hz + h / 2 + tt)) \
             + (lip_shell & _zband(hz + h / 2, hz + h / 2 + tt)) + (lip_shell & _zband(hz - h / 2 - tt, hz - h / 2))
@@ -342,20 +370,25 @@ def build_guard_tpu() -> CoguPart:
     zb = P.COVER_TOP_Z
     base = (sleeve_shell & _zband(zb, zb + g["base_ring"] + tt)) + (lip_shell & _zband(zb + g["base_ring"], zb + g["base_ring"] + tt))
     pieces.append(base)
+    names.append("base_sleeve")
     top = g["center_z"] + g["radius_z"]
     pieces.append(sleeve_shell & _zband(top - c["crown_cap"], top + tt + 1))
+    names.append("crown_cap")
     solids = [so for pc in pieces for so in pc.solids()]
     for pc in pieces:
         if pc.volume < 1.0:
             raise RuntimeError("a TPU cover came out empty")
+    flat = Rotation(0, 0, 0)
     return CoguPart(
         name="phone_guard_tpu",
         solid=Part(Compound(children=solids).wrapped),
         material="TPU",
         density_g_cm3=P.TPU_DENSITY_G_CM3,
         infill_factor=1.0,
-        printed_in_pieces=len(solids),          # each cover prints on its own (largest: the hoop tyre, ~154 mm)
-        print_rotation=Rotation(0, 0, 0),
-        print_notes="TPU 95A, black: hoop tyre(s), base-ring sleeve and crown cap, printed flat and slow, "
-                    "press-fitted over the PCTG parts. Replaceable wear parts.",
+        print_rotation=flat,
+        print_pieces=[(n, pc, flat) for n, pc in zip(names, pieces)],
+        print_notes="TPU 95A, black, slow (~25 mm/s), no retraction tuning needed for these shapes. Hoop tyre "
+                    "and base sleeve stand as printed (axis vertical), no supports: the lips overhang 1.5 mm. "
+                    "Crown cap: dome up, tree supports under its top. Press-fitted over the PCTG; the hoop tyre "
+                    "also clamps the two halves of the bubble. Replaceable wear parts.",
     )

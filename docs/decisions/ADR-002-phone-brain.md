@@ -178,6 +178,16 @@ gaiola da bateria, bolsa antichamas e alarme de tensão para a LiPo, e 1 kg de P
 que continua branca). Faltam o PETG branco e o coral das peças finais e os 2 servos de reserva. A parte de baixo vai ser impressa primeiro em PLA Lite
 laranja, para conferir encaixes; a peça final continua em PETG.
 
+## Atualização 2026-10-30 (6) — bolha pronta para imprimir
+
+A bolha agora é um sólido único, fundido. Antes eram peças sobrepostas, e as sobreposições eram contadas duas
+vezes na massa: a bolha caiu de 55 para **50 g**, e o robô ficou com 1,24 kg. O volume é conferido contra um
+Monte Carlo da forma analítica, porque as uniões do OCC já perderam material duas vezes. Para imprimir, ela é
+cortada **no aro do meio em duas metades**: a de baixo tem 70 mm e sai sem suporte; a de cima tem 100 mm e só
+precisa de suporte sob a coroa. Cada uma cabe no limite de 160 mm. A capa de TPU do aro, com abas sobre a borda
+de cima e a de baixo, prende as metades. As capas de TPU também saem como STLs separados. A política v4 anda
+igual. Em aberto: prender a bolha ao tambor (hoje ela só se apoia na borda).
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

@@ -12,6 +12,13 @@ from cad.part import CoguPart
 
 
 def check_max_dimension(part: CoguPart) -> list[str]:
+    if part.print_pieces:                          # split in CAD: every piece must fit on its own
+        out = []
+        for piece, solid in part.oriented_pieces():
+            s = solid.bounding_box().size
+            if max(s.X, s.Y, s.Z) > P.MAX_PART_DIMENSION + 0.05:
+                out.append(f"{part.name}/{piece}: largest dimension {max(s.X, s.Y, s.Z):.1f} mm > {P.MAX_PART_DIMENSION} mm (A1 Mini)")
+        return out
     bb = part.solid.bounding_box()
     size = (bb.size.X, bb.size.Y, bb.size.Z)
     largest = max(size)

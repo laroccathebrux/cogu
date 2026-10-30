@@ -48,6 +48,9 @@ class CoguPart:
     printed_in_pieces: int = 0
     # material density override (g/cm3); None = PETG (parameters.PETG_DENSITY_G_CM3)
     density_g_cm3: float | None = None
+    # parts split in CAD for printing: (piece name, solid in the part frame, print rotation). When set, each
+    # piece gets its own STL and its own max-dimension check instead of the whole part.
+    print_pieces: list[tuple[str, Part, Rotation]] = field(default_factory=list)
 
     @property
     def density_g_mm3(self) -> float:
@@ -65,9 +68,16 @@ class CoguPart:
         return self.printed_mass_g + sum(m for _, m, _ in self.attached_masses)
 
     def oriented_for_print(self) -> Part:
-        p = self.solid.moved(self.print_rotation)
-        bb = p.bounding_box()
-        return p.moved(Location((-bb.min.X, -bb.min.Y, -bb.min.Z)))
+        return _on_bed(self.solid, self.print_rotation)
+
+    def oriented_pieces(self) -> list[tuple[str, Part]]:
+        return [(n, _on_bed(solid, rot)) for n, solid, rot in self.print_pieces]
+
+
+def _on_bed(solid: Part, rotation: Rotation) -> Part:
+    p = solid.moved(rotation)
+    bb = p.bounding_box()
+    return p.moved(Location((-bb.min.X, -bb.min.Y, -bb.min.Z)))
 
 
 # ---------------------------------------------------------------------------
