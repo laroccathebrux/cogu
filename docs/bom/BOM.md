@@ -1,6 +1,6 @@
 # BOM — robô com celular (ADR-002), 2026-10-30
 
-Tudo comprado em 30/10/2026, exceto o PETG coral dos pés e do aro do tambor e os 2 servos de reserva. Os itens
+Tudo comprado em 30/10/2026, exceto o PETG branco e o coral das peças finais e os 2 servos de reserva. Os itens
 marcados **estável** não dependem de mudanças no CAD.
 
 | Item | Qtd | Detalhe | Situação |
@@ -17,7 +17,8 @@ marcados **estável** não dependem de mudanças no CAD.
 | O-ring NBR 25 × 3 mm | 4 | 2 por pé; kit com 5 | **comprado** |
 | Rolamento 688ZZ | 10 | um por articulação das pernas; kit com 10 | **comprado** |
 | Inserto M3 × 5,7 mm / parafuso M3 × 8 | 6 / 6 | 4 tambor→pelve, 2 berço→tambor; insertos M3 × 5,7 × 4,6 (50 un.), parafusos Allen cilíndricos inox (20 un.) | **comprado** |
-| Filamento PETG branco | ~350 g | pernas, pelve, tambor, berço; comprado Bambu Lab PETG HF **cinza-claro** 1 kg (a paleta em `parameters.PALETTE` ainda diz branco) | **comprado** |
+| Filamento PETG branco | ~350 g | pernas, pelve, tambor, berço; a paleta continua branca (decidido em 30/10/2026) | a comprar |
+| Filamento PETG cinza-claro | 1 kg | Bambu Lab PETG HF, comprado em 30/10/2026; fora da paleta | **comprado** |
 | Filamento PETG coral | ~30 g | pés e aro do tambor (troca de cor) | estável |
 | Filamento PCTG prata | ~100 g | bolha (exceção de material, ADR-002) | **comprado** |
 | Filamento TPU 95A preto | ~60 g | capas da bolha (exceção de material, ADR-002) | **comprado** |
