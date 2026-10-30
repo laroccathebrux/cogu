@@ -17,6 +17,7 @@ e regenere com `uv run python -m cad.export`.
 | `train.py` | PPO (Brax) com seed fixa; salva checkpoints em `build/checkpoints/cogu_walk/<passo>/` e `progress.jsonl` |
 | `rollout.py` | Roda a política a partir do keyframe `rest` com um comando fixo e grava `build/videos/walk.mp4` |
 | `compare.py` | Compara checkpoints no modelo atual: distância em 8 s e taxa de queda sob empurrões |
+| `colab_train.ipynb` | Treino em GPU NVIDIA no Google Colab: gera o modelo do CAD, treina, testa sim2sim, grava vídeo e devolve um zip com o checkpoint |
 | `play.py` | Roda a política no **viewer do MuJoCo**, comandada pelo teclado, no MuJoCo normal (sim2sim). `--follow` acompanha um treino em andamento |
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
@@ -71,6 +72,22 @@ política final — ver "Como escalar".
 
 ```bash
 uv run python sim/playground/rollout.py --checkpoint sim/playground/checkpoints/cogu_walk_v0
+```
+
+## Treinar em GPU no Google Colab
+
+A GPU do Mac não serve: testado em 2026-10-30, o plugin Metal do JAX enxerga a GPU mas não implementa
+uma operação que o MJX usa em todo passo (`mhlo.cholesky`), e está parado desde 2024 numa versão antiga
+do JAX. O caminho rápido é uma GPU NVIDIA na nuvem.
+
+[Abrir o notebook no Colab](https://colab.research.google.com/github/laroccathebrux/cogu/blob/main/sim/playground/colab_train.ipynb)
+→ *Ambiente de execução → Alterar o tipo → GPU (T4)* → *Executar tudo*. O notebook clona este
+repositório, instala o JAX com CUDA 12 da mesma versão do projeto, gera o MJCF a partir do CAD, treina
+(padrão: 50 M passos, 4096 robôs), roda o teste sim2sim, grava um vídeo e baixa um zip. No Mac:
+
+```bash
+unzip ~/Downloads/cogu_walk_gpu.zip -d build/checkpoints/
+uv run mjpython sim/playground/play.py --checkpoint build/checkpoints/cogu_walk_gpu
 ```
 
 ## Ver a política no viewer (sim2sim) e acompanhar o treino
