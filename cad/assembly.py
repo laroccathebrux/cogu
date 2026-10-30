@@ -213,8 +213,13 @@ def reference_solids() -> list[ReferenceSolid]:
     out.append(ReferenceSolid("phone_camera", bump, "pelvis", "0.35 0.35 0.38 1"))
     bx, by, bz = P.BATTERY_2S["size"]
     out.append(ReferenceSolid("battery_2s", Box(bx, by, bz).moved(Location(P.BATTERY_POS)), "pelvis", blue))
-    sx, sy_, sz = P.SPINE["size"]
-    out.append(ReferenceSolid("spine_board", Box(sx, sy_, sz).moved(Location(P.SPINE_POS)), "pelvis", green))
+    ix, iy, iz = P.IMU_BOARD["size"]
+    out.append(ReferenceSolid("imu_board", Box(ix, iy, iz).moved(Location(P.IMU_POS)), "pelvis", green))
+    sd = P.SERVO_DRIVER
+    t, l, h = sd["pcb"]
+    x_front = sd["pcb_front_x"]
+    board = Box(t + sd["components"], l, h, align=(Align.MAX, Align.CENTER, Align.MIN)).moved(Location((x_front, 0, sd["z0"])))
+    out.append(ReferenceSolid("servo_driver", board, "pelvis", "0.05 0.05 0.06 1"))
     return out
 
 

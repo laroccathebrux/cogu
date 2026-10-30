@@ -1,3 +1,34 @@
+# BOM — robô com celular (ADR-002), 2026-10-30
+
+Fase só de simulação: os itens marcados **estável** não dependem de mudanças no CAD; os marcados **em aberto**
+ainda podem mudar com o desenho.
+
+| Item | Qtd | Detalhe | Situação |
+|---|---|---|---|
+| Servo Feetech STS3215 7,4 V | 10 (+2 de reserva) | 5 por perna; vem em kits de 4 → 3 kits | estável |
+| Waveshare Servo Driver with ESP32 | 1 | ESP32 + barramento ST/SC (2 portas, uma por perna) + OLED; entrada 6–12 V, plugue 5,5 × 2,1 mm | **comprado** |
+| IMU 6 eixos em placa I²C | 1 | ICM-42688-P ou BMI270 (MPU-6050 funciona, mais ruidosa) | estável |
+| Bateria LiPo 2S (7,4 V) | 1 | espaço atual no tambor: 16 × 70 × 34 mm | **em aberto** |
+| Carregador de balanceamento 2S | 1 | conector JST-XH | estável |
+| Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | do conector da bateria (T-Plug, XT30…) para a entrada da placa | depende da bateria |
+| Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | posição no CAD em aberto | em aberto |
+| Fios de silicone 20–22 AWG, conectores | — | os cabos dos servos vêm com eles | estável |
+| Chave tátil 6 × 6 mm | 4 | 2 por pé (opcional) | estável |
+| O-ring NBR 25 × 3 mm | 4 | 2 por pé | estável |
+| Rolamento 688ZZ | 10 | um por articulação das pernas | estável |
+| Inserto M3 × 5,7 mm / parafuso M3 × 8 | 6 / 6 | 4 tambor→pelve, 2 berço→tambor | estável |
+| Filamento PETG branco | ~350 g | pernas, pelve, tambor, berço | estável |
+| Filamento PETG coral | ~30 g | pés e aro do tambor (troca de cor) | estável |
+| Filamento PCTG prata | ~100 g | bolha (exceção de material, ADR-002) | **comprado** |
+| Filamento TPU 95A preto | ~60 g | capas da bolha (exceção de material, ADR-002) | **comprado** |
+
+Não precisa mais: Raspberry Pi Zero, tela CYD, câmera Pi, ToF VL53L5CX, anel de LEDs, BNO055, ESP32-S3
+separada, interface de barramento separada e regulador de 5 V (a placa Waveshare regula a própria ESP32).
+
+---
+
+> O BOM abaixo é o do robô-cogumelo (ADR-001), mantido como histórico.
+
 # BOM — robô completo (v0, fase "sim primeiro")
 
 > **Desatualizado desde o [ADR-002](../decisions/ADR-002-phone-brain.md) (2026-10-30).** O robô agora usa um celular como cérebro: saem CYD, Pi Zero, câmera, ToF, anel de LEDs, BNO055 e os 2 servos do pescoço (ficam 10 servos); entram uma placa ESP32-S3 com IMU de 6 eixos e interface do barramento dos servos, e o berço do celular. O projeto está em fase só de simulação: este BOM será refeito quando o robô andar bem no MuJoCo.

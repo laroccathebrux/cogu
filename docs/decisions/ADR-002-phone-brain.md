@@ -143,6 +143,20 @@ Na simulação completa, PCTG tem atrito 0,4 e TPU 1,0 contra o chão (prioridad
 política de levantar aprender a se apoiar nas capas. Com as capas: 55 g de PCTG + 36 g de TPU, robô com
 **1,24 kg e 417 mm**, centro de massa a 186 mm, e **100 %** das direções de queda protegidas (pior folga 3,8 mm).
 
+## Atualização 2026-10-30 (3) — eletrônica comprada
+
+**A medula é a Waveshare Servo Driver with ESP32** (no lugar da ESP32-S3 + interface separada + regulador):
+ESP32 com Wi-Fi/Bluetooth/ESP-NOW, interface do barramento ST/SC com 2 conectores (uma cadeia de servos por
+perna), telinha OLED, entrada DC 6–12 V por plugue 5,5 × 2,1 mm (a tensão de entrada tem de ser a dos servos:
+LiPo 2S), furos Ø2,75 a 23 × 58 mm (placa ≈ 30 × 65 mm). Ela não cabia no tambor, então fica **em pé atrás do
+celular, presa em dois postes do berço** com parafusos M2 de sobra dos servos, com a OLED virada para trás e
+visível entre as costelas traseiras (folga mínima de 3,5 mm até a bolha). Os cabos dos servos descem por um
+furo no berço e no tampo do tambor. **A IMU é uma placa pequena de 6 eixos em I²C** dentro do tambor, atrás.
+Robô: 1,24 kg, 417 mm; a política v4 anda igual (0,16 m/s, tremor 0,11, pé a 26 mm, 44/44 % no ar).
+
+A conferir no hardware: se a placa expõe pinos de I²C livres para a IMU e a corrente máxima do plugue DC e
+dos conectores de servo. Bateria: em aberto (a Turnigy 2200 mAh 2S de 75 × 33 × 19 mm não cabe no tambor).
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

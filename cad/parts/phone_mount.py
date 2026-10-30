@@ -26,6 +26,7 @@ COUNTERBORE_D = 6.5                                    # M3 socket head Ø5.5 + 
 PHONE_Z0 = P.COVER_TOP_Z + P.CRADLE_BASE               # phone bottom edge
 SLOT_HALF_X = PH["thickness"] / 2 + P.CRADLE_CLEARANCE  # half width of the rails' slot (phone thickness)
 RAIL_INNER_Y = PH["width"] / 2 + P.CRADLE_CLEARANCE    # rail slot bottom (phone edge + clearance)
+DRIVER_CABLE_HOLE = ((5.0, 16.0), -23.0)              # (x size, y size), x centre: through the cradle tongue and the deck
 
 
 def _cover_boss_positions() -> list[tuple[float, float]]:
@@ -103,6 +104,9 @@ def build_hip_cover() -> CoguPart:
     solid = solid + (cage_out - cage_in)
     cutters = cutters + window + lead
 
+    # servo leads from the driver board, through the cradle tongue
+    cutters = cutters + Box(*DRIVER_CABLE_HOLE[0], 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
+        Location((DRIVER_CABLE_HOLE[1], 0, P.COVER_TOP_Z)))
     # cable pass from the cradle slot down into the cover, power switch through the left wall
     cutters = cutters + Box(2 * SLOT_HALF_X, P.CRADLE_CABLE_SLOT, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
         Location((P.PHONE_X, 0, P.COVER_TOP_Z)))
@@ -113,7 +117,7 @@ def build_hip_cover() -> CoguPart:
 
     masses = [
         ("battery_2s", P.BATTERY_2S["mass_g"], Vector(*P.BATTERY_POS)),
-        ("spine_board", P.SPINE["mass_g"], Vector(*P.SPINE_POS)),
+        ("imu_board", P.IMU_BOARD["mass_g"], Vector(*P.IMU_POS)),
         ("misc_electronics", P.MISC_ELECTRONICS_MASS_G, Vector(-20.0, 0.0, 20.0)),
     ]
     return CoguPart(
@@ -151,7 +155,25 @@ def build_phone_cradle() -> CoguPart:
         except ValueError:
             pass                                                         # thin lips: keep sharp tops
         solid = solid + rail
+    # tongue behind the cradle + two posts carrying the servo driver board (OLED facing backwards)
+    tg, sd, pp = P.CRADLE_TONGUE, P.SERVO_DRIVER, P.CRADLE_DRIVER_POSTS
+    tongue = rounded_box(x0 + 6.0 - tg["x0"], 2 * tg["half_width"], P.CRADLE_BASE, 4.0).moved(
+        Location(((tg["x0"] + x0 + 6.0) / 2, 0, P.COVER_TOP_Z)))
+    solid = solid + tongue
+    _, board_l, board_h = sd["pcb"]
+    post_top = sd["z0"] + board_h + 2.0
+    for s in (1.0, -1.0):
+        post = Box(pp["thickness"], pp["width"], post_top - PHONE_Z0 + 0.01, align=(Align.MIN, Align.CENTER, Align.MIN))
+        solid = solid + post.moved(Location((sd["pcb_front_x"], s * pp["y"], PHONE_Z0 - 0.01)))
     cutters: Part | None = None
+    for s in (1.0, -1.0):                                 # M2 pilot holes for the board's four corner holes
+        for hz in (sd["z0"] + sd["hole_inset"], sd["z0"] + sd["hole_inset"] + sd["holes"][1]):
+            c = Cylinder(P.M2_PILOT_HOLE / 2, pp["thickness"] + 2, rotation=(0, 90, 0)).moved(
+                Location((sd["pcb_front_x"] + pp["thickness"] / 2, s * sd["holes"][0] / 2, hz)))
+            cutters = c if cutters is None else cutters + c
+    cable = Box(*DRIVER_CABLE_HOLE[0], 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
+        Location((DRIVER_CABLE_HOLE[1], 0, P.COVER_TOP_Z)))
+    cutters = cutters + cable                             # servo leads go down into the drum, to both legs
     for ix in P.COVER_CRADLE_INSERTS_X:                   # M3 × 8: 3 mm head in a counterbore, 5 mm into the insert
         cb = Cylinder(COUNTERBORE_D / 2, 4.0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
             Location((ix, 0, PHONE_Z0 - 3.0)))
@@ -168,7 +190,10 @@ def build_phone_cradle() -> CoguPart:
         print_rotation=Rotation(0, 0, 0),
         print_notes="Base on the bed, rails standing: straight extrusions, no supports. Generated for the "
                     "phone in parameters.PHONE — reprint for another phone.",
-        attached_masses=[("phone", PH["mass_g"], Vector(P.PHONE_X, 0.0, PHONE_Z0 + PH["height"] / 2))],
+        attached_masses=[("phone", PH["mass_g"], Vector(P.PHONE_X, 0.0, PHONE_Z0 + PH["height"] / 2)),
+                         ("servo_driver", P.SERVO_DRIVER["mass_g"],
+                          Vector(P.SERVO_DRIVER["pcb_front_x"] - (P.SERVO_DRIVER["pcb"][0] + P.SERVO_DRIVER["components"]) / 2,
+                                 0.0, P.SERVO_DRIVER["z0"] + P.SERVO_DRIVER["pcb"][2] / 2))],
     )
 
 

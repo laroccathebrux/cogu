@@ -53,7 +53,9 @@ def category(name: str) -> str | None:
         return "camera"
     if name.startswith(("L_", "R_")):
         return "legs"
-    return None                     # yaw servos, battery and spine board are hidden inside the cover
+    if name == "ref_servo_driver":
+        return "servo"              # black PCB on the cradle, behind the phone
+    return None                     # yaw servos, battery and IMU are hidden inside the cover
 
 
 def rest(m: mujoco.MjModel) -> mujoco.MjData:

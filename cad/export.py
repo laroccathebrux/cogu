@@ -187,7 +187,7 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         if root_body:
             el.set("pos", f"0 0 {pelvis_h:.5f}")
             ET.SubElement(el, "freejoint", name="root")
-            # IMU frame: on the spine board inside the hip cover, axes aligned with the pelvis
+            # IMU frame: the IMU breakout inside the hip cover (rear), axes aligned with the pelvis
             ET.SubElement(el, "site", name="imu", pos=_fmt([v * MM for v in P.IMU_POS]))
             # the phone's rear camera, looking forward (+X); image right = robot's right (−Y)
             from cad.parts import phone_mount

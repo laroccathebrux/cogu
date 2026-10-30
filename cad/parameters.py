@@ -242,6 +242,9 @@ COVER_SWITCH = None             # the drum leaves no side spot clear of the scre
 # The phone slides in from the top; the top third stays free for the camera module and buttons.
 CRADLE_BASE = 6.0
 CRADLE_BASE_X = (-20.0, 22.0)
+# The servo driver board rides on a tongue of the cradle base behind the phone, inside the bubble:
+CRADLE_TONGUE = dict(x0=-34.0, half_width=33.0)       # base extension behind the cradle (clear of the bubble's base ring)
+CRADLE_DRIVER_POSTS = dict(y=29.0, width=6.0, thickness=4.0)   # two posts the board screws onto
 CRADLE_RAIL_HEIGHT = 85.0       # above the base
 CRADLE_WALL = 2.4
 CRADLE_LIP = 3.0                # rail lips overlap the phone faces by this much
@@ -272,7 +275,13 @@ ACCENT_PARTS = ("foot",)        # printed in the accent colour (the drum's rim t
 BATTERY_2S = dict(size=(16.0, 70.0, 34.0), mass_g=65.0)   # x × y × z: 2S 1000 mAh pack on its long edge, front bay
 BATTERY_POS = (21.5, 0.0, 19.0)
 BATTERY_CAGE_WALL = 1.6
-SPINE = dict(size=(9.0, 40.0, 30.0), mass_g=25.0)   # ESP32-S3 + 6-axis IMU + bus-servo interface + 5 V buck, standing at the rear
-SPINE_POS = (-41.5, 0.0, 19.0)
-IMU_POS = SPINE_POS             # the IMU sits on the spine board (also the MJCF `imu` site)
+# "Spinal cord" = Waveshare Servo Driver with ESP32 (bought 2026-10-30): ESP32 + ST/SC bus-servo interface (2 ports,
+# one per leg) + 0.91" OLED, 6–12 V DC jack 5.5 × 2.1 mm, mounting holes Ø2.75 at 23 × 58 mm (board ≈ 30 × 65 mm).
+# It stands on two posts of the cradle, behind the phone, OLED facing backwards (visible between the rear ribs),
+# fixed with spare M2 self-tapping servo screws.
+SERVO_DRIVER = dict(pcb=(1.6, 65.0, 30.0), components=10.0, holes=(58.0, 23.0), hole_d=2.75, hole_inset=3.5,
+                    mass_g=20.0, pcb_front_x=-30.0, z0=48.0)
+# 6-axis IMU breakout (ICM-42688-P / BMI270 class), on I2C, inside the drum at the rear: the old spine-board slot.
+IMU_BOARD = dict(size=(4.0, 25.0, 20.0), mass_g=3.0)
+IMU_POS = (-41.5, 0.0, 19.0)    # also the MJCF `imu` site
 MISC_ELECTRONICS_MASS_G = 20.0  # switch, fuse, cables
