@@ -1,9 +1,9 @@
 """Domain randomisation for the Cogu env (per-environment model parameters).
 
 Randomised, per episode batch: floor friction, link masses, the pelvis payload and its centre of
-mass (the phone — any phone in parameters.PHONE_ENVELOPE, 165–230 g, 145–165 mm tall — plus the
-battery), joint friction/armature, servo stiffness and damping (kp / kv of the position actuators)
-and the rest pose offset (qpos0). The actuator *latency* is randomised inside the env
+mass (the phone — any phone in parameters.PHONE_ENVELOPE, 165–230 g, 145–165 mm tall, around the
+nominal iPhone 15 Pro Max — plus the battery), the servo model (gear friction, rotor inertia, position-loop kp / kv, stall torque with the
+battery voltage, back-EMF damping) and the rest pose offset (qpos0). The actuator *latency* is randomised inside the env
 (`action_delay`), not here.
 """
 
@@ -23,30 +23,36 @@ def make_domain_randomizer(mj_model: mujoco.MjModel):
     def domain_randomize(model: mjx.Model, rng: jax.Array):
         @jax.vmap
         def rand(rng):
-            keys = jax.random.split(rng, 9)
+            keys = jax.random.split(rng, 11)
             geom_friction = model.geom_friction.at[floor_id, 0].set(
                 jax.random.uniform(keys[0], minval=0.4, maxval=1.0))
             frictionloss = model.dof_frictionloss.at[6:].set(
-                model.dof_frictionloss[6:] * jax.random.uniform(keys[1], (nu,), minval=0.8, maxval=1.2))
+                model.dof_frictionloss[6:] * jax.random.uniform(keys[1], (nu,), minval=0.5, maxval=1.5))
             armature = model.dof_armature.at[6:].set(
-                model.dof_armature[6:] * jax.random.uniform(keys[2], (nu,), minval=1.0, maxval=1.05))
+                model.dof_armature[6:] * jax.random.uniform(keys[2], (nu,), minval=0.7, maxval=1.3))
+            # back-EMF damping (motor constant spread) and stall torque (battery 8.4 V full ... ~7.0 V low)
+            damping = model.dof_damping.at[6:].set(
+                model.dof_damping[6:] * jax.random.uniform(keys[9], (nu,), minval=0.8, maxval=1.2))
+            forcerange = model.actuator_forcerange * jax.random.uniform(keys[10], minval=0.85, maxval=1.1)
             body_mass = model.body_mass * jax.random.uniform(keys[3], (model.nbody,), minval=0.9, maxval=1.1)
-            # phone 165–230 g around the nominal 190 g, battery ±15 g
-            body_mass = body_mass.at[pelvis_id].add(jax.random.uniform(keys[4], minval=-0.04, maxval=0.055))
+            # nominal phone: the iPhone 15 Pro Max, 221 g (parameters.PHONE). −70 … +40 g covers the envelope's
+            # 165–230 g phones (Android included) plus the battery's ±15 g and some margin
+            body_mass = body_mass.at[pelvis_id].add(jax.random.uniform(keys[4], minval=-0.07, maxval=0.04))
             # a taller / shorter phone or a different battery moves the pelvis-body CoM by a few mm
             body_ipos = model.body_ipos.at[pelvis_id].add(
                 jax.random.uniform(keys[8], (3,), minval=-0.004, maxval=0.004) * jp.array([1.0, 0.5, 1.5]))
             qpos0 = model.qpos0.at[7:].add(jax.random.uniform(keys[5], (nu,), minval=-0.03, maxval=0.03))
             # position actuator: gainprm[0] = kp, biasprm[1] = -kp, biasprm[2] = -kv
-            kp_scale = jax.random.uniform(keys[6], (nu,), minval=0.8, maxval=1.2)
-            kv_scale = jax.random.uniform(keys[7], (nu,), minval=0.8, maxval=1.2)
+            kp_scale = jax.random.uniform(keys[6], (nu,), minval=0.7, maxval=1.3)
+            kv_scale = jax.random.uniform(keys[7], (nu,), minval=0.5, maxval=1.5)
             gainprm = model.actuator_gainprm.at[:, 0].multiply(kp_scale)
             biasprm = model.actuator_biasprm.at[:, 1].multiply(kp_scale)
             biasprm = biasprm.at[:, 2].multiply(kv_scale)
-            return geom_friction, frictionloss, armature, body_mass, qpos0, gainprm, biasprm, body_ipos
+            return (geom_friction, frictionloss, armature, body_mass, qpos0, gainprm, biasprm, body_ipos,
+                    damping, forcerange)
 
         fields = ("geom_friction", "dof_frictionloss", "dof_armature", "body_mass", "qpos0",
-                  "actuator_gainprm", "actuator_biasprm", "body_ipos")
+                  "actuator_gainprm", "actuator_biasprm", "body_ipos", "dof_damping", "actuator_forcerange")
         values = rand(rng)
         in_axes = jax.tree_util.tree_map(lambda x: None, model)
         in_axes = in_axes.tree_replace({f: 0 for f in fields})

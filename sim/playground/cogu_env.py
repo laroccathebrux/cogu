@@ -78,11 +78,14 @@ def default_config() -> config_dict.ConfigDict:
                 feet_planted=-1.0,        # new: a foot on the floor > max_contact_time while walking (v3 limped)
                 # misc
                 termination=-1.0,
-                stand_still=-0.3,
+                stand_still=-1.0,         # v4: -0.3 — it kept marching in place on a zero command
+                feet_air_still=-1.0,      # new: a foot off the floor on a zero command
                 dof_pos_limits=-1.0,
                 pose=-0.3,
             ),
-            tracking_sigma=0.05,      # (m/s)²; Cogu commands are ~0.1–0.3 m/s
+            tracking_sigma=0.02,      # (m/s)²; v4: 0.05 — a 0.1 m/s miss still paid 0.82, so sideways and
+                                      # backward commands were half-followed
+            tracking_sigma_ang=0.2,   # (rad/s)²; v4: 0.5 (10 × tracking_sigma)
             max_foot_height=0.025,    # swing apex (m)
             feet_air_time_range=[0.15, 0.4],   # s; v0/v1: 0.1–0.35
             max_contact_time=0.5,     # s; at 1.5–2 Hz each foot should lift at least every ~0.6 s
@@ -90,6 +93,8 @@ def default_config() -> config_dict.ConfigDict:
         ),
         push_config=config_dict.create(enable=True, interval_range=[3.0, 6.0], magnitude_range=[0.05, 0.3]),
         gait_freq_range=[1.5, 2.0],   # Hz
+        stand_phase_reset=True,       # zero command: the gait phase holds its start value (both feet down);
+                                      # checkpoints up to v4 kept it running (config_for_checkpoint)
         command_resample_steps=250,   # 5 s
         lin_vel_x=[-0.10, 0.30],
         lin_vel_y=[-0.10, 0.10],
@@ -116,11 +121,15 @@ def config_for_checkpoint(ckpt: Union[str, Path]) -> config_dict.ConfigDict:
     for d in (ckpt, ckpt.parent):
         f = d / ENV_CONFIG_FILE
         if f.exists():
+            saved = json.loads(f.read_text())
             cfg = default_config()
-            cfg.update(config_dict.ConfigDict(json.loads(f.read_text())))
+            cfg.update(config_dict.ConfigDict(saved))
+            if "stand_phase_reset" not in saved:      # trained before it existed
+                cfg.stand_phase_reset = False
             return cfg
     cfg = default_config()
     cfg.action_filter_alpha = 1.0
+    cfg.stand_phase_reset = False
     return cfg
 
 
@@ -292,7 +301,11 @@ class CoguJoystick(mjx_env.MjxEnv):
         state.info["step"] += 1
         state.info["push_step"] += 1
         phase_tp1 = state.info["phase"] + state.info["phase_dt"]
-        state.info["phase"] = jp.fmod(phase_tp1 + jp.pi, 2 * jp.pi) - jp.pi
+        phase_tp1 = jp.fmod(phase_tp1 + jp.pi, 2 * jp.pi) - jp.pi
+        if cfg.stand_phase_reset:                     # standing: hold the start phase (both feet down)
+            moving = jp.linalg.norm(state.info["command"]) > 0.05
+            phase_tp1 = jp.where(moving, phase_tp1, jp.array([0.0, jp.pi]))
+        state.info["phase"] = phase_tp1
         state.info["last_last_act"] = state.info["last_act"]
         state.info["last_act"] = action
         state.info["rng"], cmd_rng = jax.random.split(state.info["rng"])
@@ -374,6 +387,7 @@ class CoguJoystick(mjx_env.MjxEnv):
             # cast: a raw bool here makes XLA-CPU compile a ~3x slower step (measured)
             "termination": done.astype(jp.float32),
             "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * (jp.linalg.norm(cmd) < 0.05),
+            "feet_air_still": jp.sum(~contact).astype(jp.float32) * (jp.linalg.norm(cmd) < 0.05),
             "dof_pos_limits": self._cost_joint_pos_limits(qpos),
             "pose": jp.sum(jp.square(qpos - self._default_pose) * self._pose_weights),
         }
@@ -384,7 +398,7 @@ class CoguJoystick(mjx_env.MjxEnv):
 
     def _reward_tracking_ang_vel(self, cmd, ang_vel):
         err = jp.square(cmd[2] - ang_vel[2])
-        return jp.exp(-err / (self._config.reward_config.tracking_sigma * 10))
+        return jp.exp(-err / self._config.reward_config.tracking_sigma_ang)
 
     def _cost_joint_pos_limits(self, qpos):
         out = -jp.clip(qpos - self._soft_lowers, None, 0.0) + jp.clip(qpos - self._soft_uppers, 0.0, None)

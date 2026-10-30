@@ -150,6 +150,22 @@ class ServoSTS3215:
     mount_holes_x_back_side: tuple = (8.3, 32.75)   # X from shaft axis, on the back face
     # overall envelope along Y (from the horn-side case face)
     total_height: float = 28.75 + 3.8 + 4.7  # back disc bottom -> horn disc top = 37.25
+    # --- actuator model for the simulator (2026-10-30). A DC motor behind a 1:345 gearbox, driven by the
+    # servo's own position loop: torque = stall · clip(PD) − (stall / no-load speed) · ω. MuJoCo builds it from
+    # a position actuator (the saturated PD, forcerange = ±stall) plus joint damping (the back-EMF term), so
+    # the available torque falls to 0 at the no-load speed. Datasheet values at 7.4 V; the battery sags from
+    # 8.4 to ~7.0 V, which scales stall torque and speed together (their ratio, the damping, stays put).
+    stall_torque_nm: float = 1.91       # 19.5 kg·cm
+    no_load_speed_rad_s: float = 4.72   # 0.222 s / 60°
+    gear_friction_nm: float = 0.05      # Coulomb friction at the output (estimate; to be measured)
+    armature_kgm2: float = 0.01         # rotor inertia × 345² (estimate; to be measured)
+    bearing_damping: float = 0.02       # mechanical viscous friction, N·m·s/rad
+    pos_kp: float = 8.0                 # N·m/rad before saturation: full torque at ~14° of error
+    pos_kv: float = 0.3                 # the position loop's D term, N·m·s/rad
+
+    @property
+    def back_emf_damping(self) -> float:
+        return self.stall_torque_nm / self.no_load_speed_rad_s
 
     @property
     def x_min(self) -> float:
@@ -216,13 +232,16 @@ FOOT_SWITCHES_PER_FOOT = 2
 # so the hip cover and the phone cradle only have to clear the two yaw servo bodies
 # (x −35.1 … +10.1, |y| 7.6 … 32.4, z ≤ 28.75; back discs Ø19.2 on the yaw axes up to z 32.55).
 # ---------------------------------------------------------------------------
-# The phone the robot carries. Defaults: an iPhone 15/16-class phone without a case; edit to
-# yours (the cradle is generated from these numbers). The training env randomises mass and
-# centre of mass over PHONE_ENVELOPE.
-PHONE = dict(height=147.6, width=71.6, thickness=8.3, mass_g=190.0, corner_r=9.0)
+# The phone the robot carries: the first prototype's, an iPhone 15 Pro Max without a case (Apple's
+# dimensions; corner radius estimated). Edit to yours: the cradle is generated from these numbers. The
+# training env randomises mass and centre of mass over PHONE_ENVELOPE. Was an iPhone 15-class phone
+# (147.6 × 71.6 × 8.3 mm, 190 g) until 2026-10-30.
+PHONE = dict(height=159.9, width=76.7, thickness=8.25, mass_g=221.0, corner_r=10.0)
 PHONE_ENVELOPE = dict(height=(145.0, 165.0), width=(70.0, 78.0), thickness=(7.5, 9.5), mass_g=(165.0, 230.0))
 PHONE_X = 12.0                  # phone mid-plane: ahead of the yaw axes, which pulls the CoM over the feet
-PHONE_CAMERA = dict(from_top=22.0, from_left_edge=20.0, bump=(36.0, 36.0, 3.0))   # rear camera module, robot's left
+# rear camera module (robot's left), centre of the main lens and LiDAR from the top / side edge; the 15 Pro Max
+# plateau is ~40 mm square and ~4 mm proud (estimates, to be measured on the phone)
+PHONE_CAMERA = dict(from_top=25.0, from_left_edge=25.0, bump=(40.0, 40.0, 4.0))
 # Hip cover: open-bottom box over the yaw servos, bolted to the 4 pelvis bosses through screw tubes
 # (M3 × 8 from the top, heads at the bottom of Ø6.5 counterbores). Holds the battery (front) and the
 # "spinal cord" board (rear).
@@ -256,15 +275,21 @@ CRADLE_CABLE_SLOT = 16.0        # slot under the phone's USB-C port
 # `uv run python -m cad.export --guard frame|bubble` builds a variant without changing this default.
 PHONE_GUARD = "bubble"          # chosen 2026-10-30 (ADR-002): 150 mm rib bubble
 GUARD_FRAME = dict(bar=5.0, depth_beyond_phone=8.0, top_clearance=12.0, side_clearance=0.5)
-GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=75.0, radius_z=100.0, wall=3.0,
-                    rib_width=6.0, rib_azimuths=(30.0, 90.0, 150.0, 210.0, 270.0, 330.0),
-                    hoop_z=(110.0,), hoop_height=6.0, base_ring=6.0)
+# 2026-10-30, iPhone 15 Pro Max: radius_z 100 -> 108 (the 160 mm phone pierced the shell); the centre rises with it
+# (centre_z = 40 + 0.7 · radius_z) so the base still meets the drum at R 53.6. Min gap phone / camera bump to the
+# PCTG and the TPU: 5.7 mm. Ribs: the front opening widened from 60° to 90° (ribs at ±45°): at ±30° the left
+# front rib covered ~13 % of the rear camera's view (and the LiDAR next to it). The rear gap (165° / 195°) still
+# shows the driver board's OLED.
+GUARD_BUBBLE = dict(center_x=-2.0, center_z=115.6, radius_xy=75.0, radius_z=108.0, wall=3.0,
+                    rib_width=6.0, rib_azimuths=(45.0, 105.0, 165.0, 195.0, 255.0, 315.0),
+                    hoop_z=(115.6,), hoop_height=6.0, base_ring=6.0)
 # Bubble ↔ drum twist lock (bayonet, 2026-10-30): the bubble comes off every time the phone goes in or out, so
 # no tools. A short skirt hangs from the bubble's base ring over the outside of the drum; L-slots in it catch
 # lugs on the drum's wall. Lower the bubble with the slots over the lugs, turn it clockwise (seen from above)
 # by `twist_deg`: a detent bump on each slot's lower edge clicks over the lug and keeps it from turning back.
 # Angles are azimuths about the drum axis, 0 = forward (+X), counter-clockwise from above.
-GUARD_LOCK = dict(lugs=3, first_azimuth=0.0, lug_arc_deg=9.0, lug_height=3.0, lug_depth=1.5, lug_z=33.0,
+# Lugs unevenly spaced: the ribs are no longer 120°-symmetric, so the bubble must go on one way only.
+GUARD_LOCK = dict(lug_azimuths=(0.0, 110.0, 240.0), lug_arc_deg=9.0, lug_height=3.0, lug_depth=1.5, lug_z=33.0,
                   skirt_bottom_z=30.0, skirt_wall=2.0, clearance=0.3, twist_deg=15.0,
                   detent=0.6, detent_arc_deg=2.0, collar_height=2.5)   # collar: solid ring joining skirt and base ring
 # TPU covers on the bubble's ground-contact parts (press-fit "tyres", printed in TPU 95A):

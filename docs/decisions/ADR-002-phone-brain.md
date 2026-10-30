@@ -202,6 +202,23 @@ As capas de TPU estavam atravessando as costelas (as abas ficam dentro do contor
 entalhes onde cada costela passa, e a capa da base começa acima do colar. Bolha 59 g, TPU 33 g, robô
 1,25 kg; a política v4 anda igual.
 
+## Atualização 2026-10-30 (8) — iPhone 15 Pro Max, bolha mais alta e abertura da frente para a câmera e o LiDAR
+
+O primeiro protótipo usa o **iPhone 15 Pro Max** (159,9 × 76,7 × 8,25 mm, 221 g), que tem LiDAR. Antes o CAD
+tinha um celular de 147,6 mm: o novo atravessava a casca da bolha. A bolha subiu de 100 para **108 mm** de
+semieixo vertical (centro em z 115,6, topo em 223,6), mantendo o raio de 53,6 mm onde encosta no tambor: folga
+mínima de 3,8 mm entre o módulo da câmera e a casca. A abertura da frente passou de 60° para **90°** (costelas em
+±45°, 105°, 165°, 195° e 255°): com as costelas em ±30°, a da frente à esquerda tampava ~13 % da vista da câmera
+traseira, e o LiDAR fica ao lado dela. Agora a câmera principal (74° × 59°, celular em pé) vê 0 % do robô. Os
+ressaltos da trava passaram a ter espaçamento desigual (0°, 110°, 240°): a bolha só encaixa na posição certa,
+e as outras cinco orientações batem na saia. Robô: 1,28 kg, 431 mm; o celular não tocou o chão em nenhuma de
+16 quedas.
+
+Navegação (próximo passo depois da marcha): o ARKit dá a posição do robô no ambiente e o mapa de profundidade
+do LiDAR. Plano em duas camadas: a política de marcha continua só com servos e IMU, a 50 Hz; o celular decide
+para onde ir, a 5–10 Hz, e manda os comandos de velocidade. No simulador, a câmera `phone_cam` do MJCF renderiza
+imagem e profundidade (para fazer o papel do LiDAR) e a posição do ARKit é a verdadeira com erro e atraso.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

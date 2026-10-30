@@ -46,8 +46,7 @@ def _sector(r0: float, r1: float, z0: float, z1: float, a0: float, a1: float) ->
 
 
 def _lock_azimuths() -> list[float]:
-    k = P.GUARD_LOCK
-    return [k["first_azimuth"] + i * 360.0 / k["lugs"] for i in range(k["lugs"])]
+    return list(P.GUARD_LOCK["lug_azimuths"])
 
 
 def build_lock_lugs() -> Part:

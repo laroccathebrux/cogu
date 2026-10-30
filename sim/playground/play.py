@@ -132,6 +132,8 @@ class Sim2Sim:
         self.obs = self._obs()
         self.last_act = action
         self.phase = np.fmod(self.phase + self.phase_dt + np.pi, 2 * np.pi) - np.pi
+        if self.cfg.get("stand_phase_reset", False) and np.linalg.norm(self.command) <= 0.05:
+            self.phase = np.array([0.0, np.pi])          # standing: hold the start phase, as in training
 
     def fallen(self) -> bool:
         up = self.d.site_xmat[self.imu].reshape(3, 3)[:, 2]

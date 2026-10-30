@@ -137,7 +137,9 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
     visual = ET.SubElement(root, "visual")
     ET.SubElement(visual, "global", offwidth="1280", offheight="960")
     default = ET.SubElement(root, "default")
-    ET.SubElement(default, "joint", damping="0.05", armature="0.005", frictionloss="0.02")
+    sv = P.SERVO            # actuator model: see ServoSTS3215 (saturated PD + back-EMF damping)
+    ET.SubElement(default, "joint", damping=f"{sv.back_emf_damping + sv.bearing_damping:.4g}",
+                  armature=f"{sv.armature_kgm2:.4g}", frictionloss=f"{sv.gear_friction_nm:.4g}")
     if mjx:
         ET.SubElement(default, "geom", type="mesh", contype="0", conaffinity="0", group="2",
                       rgba=P.PALETTE["printed"])
@@ -161,7 +163,8 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         ET.SubElement(tpu, "geom", contype="2", conaffinity="2", priority="2", friction="1.0 0.005 0.0001",
                       rgba=P.PALETTE["tpu"])
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
-    ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
+    ET.SubElement(default, "position", kp=f"{sv.pos_kp:.4g}", kv=f"{sv.pos_kv:.4g}",
+                  forcerange=f"{-sv.stall_torque_nm:.4g} {sv.stall_torque_nm:.4g}", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
     ET.SubElement(asset, "texture", name="grid", type="2d", builtin="checker", rgb1=".2 .3 .4", rgb2=".3 .4 .5",
                   width="300", height="300")
@@ -189,10 +192,12 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
             ET.SubElement(el, "freejoint", name="root")
             # IMU frame: the IMU breakout inside the hip cover (rear), axes aligned with the pelvis
             ET.SubElement(el, "site", name="imu", pos=_fmt([v * MM for v in P.IMU_POS]))
-            # the phone's rear camera, looking forward (+X); image right = robot's right (−Y)
+            # the phone's rear main camera (the LiDAR sits next to it), looking forward (+X); image right = robot's
+            # right (−Y). The phone stands upright, so the 4:3 sensor's long side is vertical: 74° tall × 59° wide
+            # (render it 3 wide : 4 tall)
             from cad.parts import phone_mount
             ET.SubElement(el, "camera", name="phone_cam", pos=_fmt([v * MM for v in phone_mount.phone_camera_pos()]),
-                          xyaxes="0 -1 0 0 0 1", fovy="70")
+                          xyaxes="0 -1 0 0 0 1", fovy="74")
             ET.SubElement(el, "camera", name="track", mode="trackcom", pos="0.0 -0.5 0.1",
                           xyaxes="1 0 0 0 0.25 1")
             ET.SubElement(el, "light", name="track_light", mode="trackcom", pos="0.2 -0.3 1.0", dir="-0.2 0.3 -1",

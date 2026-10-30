@@ -13,14 +13,39 @@ e regenere com `uv run python -m cad.export`.
 | Arquivo | O que faz |
 |---|---|
 | `cogu_env.py` | Env `CoguJoystick(mjx_env.MjxEnv)`: observações, recompensa, terminação, latência do atuador, empurrões |
-| `randomize.py` | Domain randomization por env: atrito do chão, massas, carga extra na pelve, atrito/armature das juntas, kp/kv dos servos, offset de pose |
+| `randomize.py` | Domain randomization por env: atrito do chão, massas, carga extra na pelve, modelo do servo (atrito, inércia, kp/kv, torque de travamento com a tensão da bateria, amortecimento do motor), offset de pose |
 | `train.py` | PPO (Brax) com seed fixa; salva checkpoints em `build/checkpoints/cogu_walk/<passo>/` e `progress.jsonl` |
 | `rollout.py` | Roda a política a partir do keyframe `rest` com um comando fixo e grava `build/videos/walk.mp4` |
 | `compare.py` | Compara checkpoints no modelo atual: distância em 8 s e taxa de queda sob empurrões |
 | `colab_train.ipynb` | Treino em GPU NVIDIA no Google Colab: gera o modelo do CAD, treina, testa sim2sim, grava vídeo e devolve um zip com o checkpoint |
 | `play.py` | Roda a política no **viewer do MuJoCo**, comandada pelo teclado, no MuJoCo normal (sim2sim). `--follow` acompanha um treino em andamento |
+| `command_tracking.py` | Quanto a política segue cada comando (frente, trás, lado, giro, parado): velocidade atingida e, parado, tempo com pé no ar |
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
+
+## Modelo do servo (2026-10-30)
+
+Até a v4, o servo simulado tinha torque máximo (±1,9 N·m) mas **velocidade ilimitada**. O STS3215 a 7,4 V é um
+motor DC com redução 1:345 e malha de posição própria: o torque disponível cai linearmente até zero na
+velocidade sem carga (4,72 rad/s). O MJCF agora monta isso com peças nativas do MuJoCo/MJX: atuador de posição
+saturado em ±1,91 N·m (o PD da malha do servo) mais amortecimento de junta igual a torque de travamento ÷
+velocidade sem carga, 0,40 N·m·s/rad (a força contraeletromotriz). Atrito de 0,05 N·m e inércia refletida de
+0,01 kg·m² são estimativas, para medir num servo de verdade. Valores em `ServoSTS3215` (`cad/parameters.py`).
+
+A v4 usava o joelho a 4 rad/s, o que um servo com carga não alcança. Neste modelo ela cai a 0,25 e 0,30 m/s e
+segue os outros comandos com menos força. Esse é o motivo da v5.
+
+**v5 (em andamento).** Mudanças no env: com comando zero a fase da marcha fica parada na posição inicial (os dois
+pés no chão) e um custo novo cobra pé no ar (`feet_air_still`); o rastreamento ficou mais exigente
+(`tracking_sigma` 0,05 → 0,02, giro 0,5 → 0,2), porque a v4 seguia só metade dos comandos de lado e de ré. Teste
+local (`command_tracking.py`, modelo com o iPhone 15 Pro Max):
+
+- do zero, 3 M passos: ficou parada com qualquer comando, sem nunca dar um passo. O servo realista deixa cada
+  passo caro e ficar parado é um ótimo local;
+- a partir da v4 (`--restore`), 2 M passos: 0,14 m/s a 0,15 pedido, 0,18 e 0,19 m/s a 0,25 e 0,30 sem cair
+  (a v4 caía), pé a 22,5 mm, 0 % de pé no ar com comando zero (a v4: 40 %). Giro, ré e lado ainda fracos.
+
+O treino longo no Colab parte da v4 (`RESTORE` no notebook, 30 M passos).
 
 ## Resultado v4 — primeira marcha de verdade (2026-10-30)
 
