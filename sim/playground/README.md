@@ -17,6 +17,7 @@ e regenere com `uv run python -m cad.export`.
 | `train.py` | PPO (Brax) com seed fixa; salva checkpoints em `build/checkpoints/cogu_walk/<passo>/` e `progress.jsonl` |
 | `rollout.py` | Roda a política a partir do keyframe `rest` com um comando fixo e grava `build/videos/walk.mp4` |
 | `compare.py` | Compara checkpoints no modelo atual: distância em 8 s e taxa de queda sob empurrões |
+| `play.py` | Roda a política no **viewer do MuJoCo**, comandada pelo teclado, no MuJoCo normal (sim2sim). `--follow` acompanha um treino em andamento |
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
 
@@ -71,6 +72,37 @@ política final — ver "Como escalar".
 ```bash
 uv run python sim/playground/rollout.py --checkpoint sim/playground/checkpoints/cogu_walk_v0
 ```
+
+## Ver a política no viewer (sim2sim) e acompanhar o treino
+
+`play.py` roda a política no MuJoCo "normal" (o motor em C, CPU), não no MJX onde ela foi treinada. Se
+o robô anda aqui, a política não depende de nada específico do MJX — é o mesmo teste sim2sim que o Open
+Duck faz antes do hardware. A observação, a escala da ação, a fase da marcha e a ordem exata em que o
+ambiente monta tudo isso são refeitas sem JAX.
+
+```bash
+uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v1
+uv run mjpython sim/playground/play.py --follow build/checkpoints/cogu_walk_v2   # acompanha um treino
+uv run python sim/playground/play.py --headless --vx 0.15 --noise 1 --delay 1 \
+    --checkpoint sim/playground/checkpoints/cogu_walk_v1                           # sem janela
+```
+
+Teclas: ↑/↓ velocidade para a frente, ←/→ girar, PgUp/PgDn de lado, End para, Home volta à pose de
+repouso; Ctrl + arrastar com o botão direito empurra o robô. `--follow DIR` troca de política sozinho
+sempre que o `train.py` salva um checkpoint novo em DIR (uma vez por avaliação), então dá para ver o
+robô aprendendo enquanto o treino roda. O treino em si não tem janela: são 1024 robôs em paralelo no JAX.
+
+**macOS:** o viewer controlado por script precisa do `mjpython`. Com o Python gerenciado pelo uv, o
+`mjpython` não acha a `libpython`; crie o link uma vez:
+
+```bash
+ln -sf "$(uv run python -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')/libpython3.12.dylib" .venv/libpython3.12.dylib
+```
+
+Primeiro teste sim2sim (2026-10-30): a política **v1**, treinada no robô-cogumelo, roda no MuJoCo normal
+sobre o **modelo com celular** e anda 1,21 m em 8 s a 0,15 m/s; com ruído de observação e 20 ms de
+atraso, 1,04 m. Parada com comando zero, 1 cm de deriva. O modelo novo é mais leve (1,13 kg) e a v1 já
+tinha sido treinada com carga variável na pelve.
 
 ## Uso
 

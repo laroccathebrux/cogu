@@ -99,7 +99,8 @@ que torna isso possível: o iPhone não precisa de cabo nem de adaptador serial.
 Resultado: **1,13 kg, 399 mm**, em pé no MuJoCo (2,6° de inclinação após 3 s), centro de massa
 8 mm atrás do eixo do quadril, 173 mm acima do chão.
 
-**Em aberto: giro de 360° do celular.** Um 11º servo sob o berço, com o eixo passando pelo centro do
+**Giro de 360° do celular: adiado para a v2 do robô** (decisão do autor em 2026-10-30: celular fixo
+é mais simples e mais barato). Um 11º servo sob o berço, com o eixo passando pelo centro do
 celular, deixaria o robô virar a tela (rosto, câmera frontal) ou as câmeras traseiras para onde anda,
 sem mudar o centro de massa. A ligação sem fio evita cabo torcendo. Custo: +55 g, ~+35 mm de altura.
 
