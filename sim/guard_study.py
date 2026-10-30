@@ -29,8 +29,9 @@ VARIANTS = {"none": OUT / "none" / "mjcf" / "cogu_lower_body.xml",
             "frame": OUT / "frame" / "mjcf" / "cogu_lower_body.xml",
             "bubble": OUT / "bubble" / "mjcf" / "cogu_lower_body.xml"}
 
-COLORS = {"legs": (226, 220, 206), "hip": (52, 54, 60), "phone": (18, 18, 22), "camera": (90, 92, 98),
-          "guard": (198, 203, 209), "tpu": (22, 22, 24)}
+COLORS = {"legs": (232, 235, 237), "hip": (232, 235, 237), "cover": (232, 235, 237), "feet": (225, 102, 74),
+          "servo": (23, 23, 25), "phone": (18, 18, 22), "camera": (90, 92, 98), "guard": (198, 203, 209),
+          "tpu": (22, 22, 24)}
 
 
 def category(name: str) -> str | None:
@@ -38,8 +39,14 @@ def category(name: str) -> str | None:
         return "tpu"
     if name.startswith("pelvis_phone_guard"):
         return "guard"
-    if name in ("pelvis_hip_cover", "pelvis_phone_cradle", "pelvis_pelvis"):
+    if name == "pelvis_hip_cover":
+        return "cover"
+    if name in ("pelvis_phone_cradle", "pelvis_pelvis"):
         return "hip"
+    if name.startswith("ref_") and "_servo_" in name and not name.startswith("ref_yaw"):
+        return "servo"
+    if name.endswith("_foot_foot"):
+        return "feet"
     if name == "ref_phone":
         return "phone"
     if name == "ref_phone_camera":
@@ -133,7 +140,7 @@ def main() -> int:
         print(f"{name:7s} mass {s['mass_kg']*1000:6.0f} g  CoM {s['com_height_mm']:5.0f} mm  height {s['height_mm']:4.0f} mm  "
               f"stands {s['stands']}  phone hit the floor in {hits}/8 falls  hits from {[f["direction_deg"] for f in s["falls"] if f["phone_touched"]]}°")
         if name == "none":
-            export_glb(m, {"legs", "hip", "phone", "camera"}, OUT / "base.glb")
+            export_glb(m, {"legs", "hip", "cover", "feet", "servo", "phone", "camera"}, OUT / "base.glb")
         else:
             export_glb(m, {"guard", "tpu"}, OUT / f"guard_{name}.glb")
     (OUT / "summary.json").write_text(json.dumps(summary, indent=2))

@@ -261,6 +261,13 @@ GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=75.0, radius_z=100.
 # and a cap over the crown. None to leave them out.
 GUARD_TPU = dict(thickness=2.0, lip=1.5, crown_cap=12.0)   # 2.5 mm weighed 50 g
 
+# Print colours (2026-10-30, "option 3"): light printed parts so the black servos read as joints, one coral
+# accent on the feet and on the drum's rim (a filament change), silver PCTG bubble, black TPU covers.
+# rgba strings for the MJCF; the 3D comparison page uses the same palette.
+PALETTE = dict(printed="0.91 0.92 0.93 1", accent="0.88 0.40 0.29 1", servo="0.09 0.09 0.10 1",
+               pctg="0.78 0.80 0.82 1", tpu="0.08 0.08 0.09 1", phone="0.07 0.07 0.08 1")
+ACCENT_PARTS = ("foot",)        # printed in the accent colour (the drum's rim too, as a colour change)
+
 # Electronics (bought parts). Positions are box centres in the pelvis frame.
 BATTERY_2S = dict(size=(16.0, 70.0, 34.0), mass_g=65.0)   # x × y × z: 2S 1000 mAh pack on its long edge, front bay
 BATTERY_POS = (21.5, 0.0, 19.0)

@@ -140,26 +140,26 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
     ET.SubElement(default, "joint", damping="0.05", armature="0.005", frictionloss="0.02")
     if mjx:
         ET.SubElement(default, "geom", type="mesh", contype="0", conaffinity="0", group="2",
-                      rgba="0.93 0.86 0.72 1")
+                      rgba=P.PALETTE["printed"])
         coll = ET.SubElement(default, "default", **{"class": "collision"})
         ET.SubElement(coll, "geom", type="box", contype="1", conaffinity="1", group="3", condim="3",
                       friction="0.9 0.005 0.0001", rgba="0.3 0.3 0.8 0.4")
     else:
         ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
-                      rgba="0.93 0.86 0.72 1", group="0")
+                      rgba=P.PALETTE["printed"], group="0")
         # Hollow parts: MuJoCo collides CONVEX HULLS, and the hull of the open-bottom hip cover would "collide"
         # with whatever sits under it. Cover and cradle therefore collide with the floor (bit 2) but never with
         # the legs (bit 1). Nothing of the legs swings above the pelvis plate (z > 0), where they live.
         shell = ET.SubElement(default, "default", **{"class": "shell"})
-        ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.20 0.20 0.22 1")
+        ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba=P.PALETTE["printed"])
         # Guard friction against the floor: MuJoCo takes the max of both geoms' friction unless one has a higher
         # priority, so the guard parts get priority 2 and their own coefficients: hard plastic slides, TPU grips.
         guard = ET.SubElement(default, "default", **{"class": "guard"})     # its convex hull is the protective envelope
         ET.SubElement(guard, "geom", contype="2", conaffinity="2", priority="2", friction="0.4 0.005 0.0001",
-                      rgba="0.78 0.80 0.82 1")
+                      rgba=P.PALETTE["pctg"])
         tpu = ET.SubElement(default, "default", **{"class": "guard_tpu"})
         ET.SubElement(tpu, "geom", contype="2", conaffinity="2", priority="2", friction="1.0 0.005 0.0001",
-                      rgba="0.08 0.08 0.09 1")
+                      rgba=P.PALETTE["tpu"])
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
@@ -207,6 +207,12 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
             loc = Location(inst.pos)
             instances.append((part, loc, inst.mirrored, inst.rot_z))
             extra = {"euler": f"0 0 {inst.rot_z}"} if inst.rot_z else {}
+            if inst.part_name in P.ACCENT_PARTS:
+                extra["rgba"] = P.PALETTE["accent"]
+            elif mjx and inst.part_name == "phone_guard_bubble":
+                extra["rgba"] = P.PALETTE["pctg"]
+            elif mjx and inst.part_name == "phone_guard_tpu":
+                extra["rgba"] = P.PALETTE["tpu"]
             if not mjx:
                 cls = GEOM_CLASS.get(inst.part_name)
                 if cls:

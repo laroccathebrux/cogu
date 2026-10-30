@@ -195,9 +195,21 @@ def reference_solids() -> list[ReferenceSolid]:
     # yaw servos in the pelvis: servo X -> -X, shaft (Y) -> -Z, Z -> Y
     yaw_servo = servo.rotate(Axis.X, -90).mirror(Plane.YZ)
     for side, sy in (("L", P.HIP_SPACING / 2), ("R", -P.HIP_SPACING / 2)):
-        out.append(ReferenceSolid(f"yaw_servo_{side}", yaw_servo.moved(Location((0, sy, 0))), "pelvis", grey))
+        out.append(ReferenceSolid(f"yaw_servo_{side}", yaw_servo.moved(Location((0, sy, 0))), "pelvis", P.PALETTE["servo"]))
+    # leg servos (each link houses the servo of its distal joint), placed like their housings
+    from cad.parts.link import _servo_to_housing
+    in_housing = _servo_to_housing(servo)
+    roll_servo = in_housing.rotate(Axis.Z, -90).rotate(Axis.X, 180).moved(Location((hip.ROLL_AXIS_X, 0, hip.ROLL_AXIS_Z)))
+    pitch_servo = in_housing.rotate(Axis.Y, 90).moved(Location((hip.PITCH_AXIS_X, hip.PITCH_AXIS_Y, hip.PITCH_AXIS_Z)))
+    link_servo = in_housing.moved(Location((0, 0, -P.THIGH_LENGTH)))
+    for side in ("L", "R"):
+        m = (lambda s: mirrored(s)) if side == "L" else (lambda s: s)
+        out.append(ReferenceSolid(f"roll_servo_{side}", m(roll_servo), f"{side}_hip_yaw", P.PALETTE["servo"]))
+        out.append(ReferenceSolid(f"pitch_servo_{side}", m(pitch_servo), f"{side}_hip_roll", P.PALETTE["servo"]))
+        out.append(ReferenceSolid(f"knee_servo_{side}", m(link_servo), f"{side}_thigh", P.PALETTE["servo"]))
+        out.append(ReferenceSolid(f"ankle_servo_{side}", m(link_servo), f"{side}_shin", P.PALETTE["servo"]))
     phone, bump = phone_mount.phone_solid()
-    out.append(ReferenceSolid("phone", phone, "pelvis", "0.12 0.12 0.14 1", collide=True))
+    out.append(ReferenceSolid("phone", phone, "pelvis", P.PALETTE["phone"], collide=True))
     out.append(ReferenceSolid("phone_camera", bump, "pelvis", "0.35 0.35 0.38 1"))
     bx, by, bz = P.BATTERY_2S["size"]
     out.append(ReferenceSolid("battery_2s", Box(bx, by, bz).moved(Location(P.BATTERY_POS)), "pelvis", blue))
