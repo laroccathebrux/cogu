@@ -22,6 +22,30 @@ e regenere com `uv run python -m cad.export`.
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
 
+## Resultado v4 — primeira marcha de verdade (2026-10-30)
+
+`checkpoints/cogu_walk_v4/`: 50 M passos no Colab (GPU T4, 4096 robôs, 37 min, 22,7 mil passos/s), seed 0, no robô
+com celular (ADR-002). Recompensas novas: filtro passa-baixa na ação (`action_filter_alpha` 0,4), cobranças de
+suavidade, de pé escorregando, de pé baixo e de pé plantado, e mais peso para fase e tempo de voo. As versões
+v0/v1 não davam passos: vibravam as pernas a 12,6 Hz e patinavam.
+
+`gait_metrics.py` a 0,15 m/s, 8 s a partir da pose de repouso, no MuJoCo normal (sim2sim):
+
+| Medida | v1 | **v4** | Uma marcha |
+|---|---|---|---|
+| Velocidade | 0,16 m/s | 0,16 m/s | 0,15 pedido |
+| Frequência do passo | 12,6 Hz | **1,71 Hz** | 1,5–2,5 Hz |
+| Tremor (potência > 5 Hz) | 0,99 | **0,10** | < 0,2 |
+| Movimento das juntas | 6° | **20°** | 15–40° |
+| Altura do pé | 4 mm | **26 mm** | ≥ 20 mm |
+| Tempo no ar, esq / dir | — | **43 / 45 %** | 30–50 % |
+| Pé escorregando | 0,085 m/s | **0,014 m/s** | < 0,03 |
+
+Sim2sim do notebook: 1,22 m em 8 s a 0,15 m/s, 1,60 m a 0,25 m/s, 1,08 m com ruído e 20 ms de atraso, parado com
+comando zero; não cai em nenhum. Treinada sem a bolha, a mesma política anda igual no robô atual com a bolha de
+PCTG e as capas de TPU (1,24 kg): a randomização de massa da pelve cobriu o peso novo. Girando (ω = 0,8 rad/s)
+ela ainda recua um pouco; giro e marcha de lado são os próximos ajustes. Vídeo: `docs/renders/sim_walk_v4.mp4`.
+
 ## Resultado v1 — robô completo (2026-10-26)
 
 `checkpoints/cogu_walk_v1/`: mesmos hiperparâmetros do v0, 10 M passos, seed 0, sobre o MJCF do commit

@@ -1,0 +1,1 @@
+Checkpoint commit was successful to /content/cogu/build/checkpoints/cogu_walk_gpu/000050135040
