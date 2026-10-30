@@ -96,6 +96,7 @@ def main(argv=None) -> int:
     env_cfg = cogu_env.default_config()
     env_cfg.episode_length = args.episode_length
     env = cogu_env.CoguJoystick(xml_path=args.xml, config=env_cfg)
+    cogu_env.save_config(env_cfg, out)       # play.py / rollout.py rebuild the same dynamics from it
     eval_env = cogu_env.CoguJoystick(xml_path=args.xml, config=env_cfg)
     print(f"env: obs {env.observation_size} act {env.action_size} xml {env.xml_path}")
 

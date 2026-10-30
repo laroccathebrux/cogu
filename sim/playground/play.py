@@ -19,6 +19,9 @@ Keys (in the viewer window):
     Home         reset the robot to the rest pose
     Ctrl + right-drag on a body: push the robot (MuJoCo's perturbation)
 
+The env config each checkpoint was trained with (action filter, scales) is read from the
+`env_config.json` train.py saves next to it.
+
 This is a *sim2sim* check: the policy was trained on MJX (JAX), and here it runs on plain MuJoCo
 (the C engine, CPU), the same engine the real-robot tooling will use. The observation, action
 scaling, gait phase and their exact timing are rebuilt from `cogu_env.py` without JAX state, so if
@@ -57,7 +60,7 @@ class Sim2Sim:
 
     def __init__(self, xml: Path, ckpt: Path, gait_freq: float = 1.75, delay_steps: int = 0,
                  noise: float = 0.0, seed: int = 0):
-        cfg = cogu_env.default_config()
+        cfg = cogu_env.config_for_checkpoint(ckpt)   # same dynamics (action filter, scales) as in training
         self.cfg = cfg
         self.m = mujoco.MjModel.from_xml_path(str(xml))
         self.m.opt.timestep = cfg.sim_dt
@@ -82,6 +85,7 @@ class Sim2Sim:
 
     def load(self, ckpt: Path):
         self.ckpt = ckpt
+        self.cfg = cogu_env.config_for_checkpoint(ckpt)
         self.policy = jax.jit(load_policy(ckpt))
 
     def reset(self):
@@ -90,6 +94,7 @@ class Sim2Sim:
         self.d.ctrl[:] = self.default_pose
         mujoco.mj_forward(self.m, self.d)
         self.last_act = np.zeros(self.m.nu)
+        self.filtered = np.zeros(self.m.nu)
         self.phase = np.array([0.0, np.pi])
         self.history = [self.default_pose.copy() for _ in range(self.delay + 1)]
         self.obs = self._obs()
@@ -115,7 +120,9 @@ class Sim2Sim:
         self.key, k = jax.random.split(self.key)
         action, _ = self.policy({"state": jp.asarray(self.obs), "privileged_state": self.priv}, k)
         action = np.asarray(action)
-        target = np.clip(self.default_pose + action * self.cfg.action_scale, self.lowers, self.uppers)
+        a = self.cfg.action_filter_alpha
+        self.filtered = a * action + (1.0 - a) * self.filtered
+        target = np.clip(self.default_pose + self.filtered * self.cfg.action_scale, self.lowers, self.uppers)
         self.history = [target] + self.history[:-1]
         self.d.ctrl[:] = self.history[self.delay]
         for _ in range(self.n_substeps):

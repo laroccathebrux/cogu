@@ -87,7 +87,7 @@ def main(argv=None) -> int:
     print(f"checkpoint: {ckpt}")
     policy = load_policy(ckpt, deterministic=not args.stochastic)
 
-    cfg = cogu_env.default_config()
+    cfg = cogu_env.config_for_checkpoint(ckpt)      # the dynamics this policy was trained with
     cfg.push_config.enable = False
     env = cogu_env.CoguJoystick(xml_path=args.xml, config=cfg)
     cmd = jp.array([args.vx, args.vy, args.wz])

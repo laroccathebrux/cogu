@@ -73,14 +73,18 @@ def main(argv=None) -> int:
     ap.add_argument("--n-envs", type=int, default=32)
     args = ap.parse_args(argv)
 
-    cfg = cogu_env.default_config()
-    cfg.push_config.enable = False
-    env_quiet = cogu_env.CoguJoystick(xml_path=args.xml, config=cfg)
-    env_push = cogu_env.CoguJoystick(xml_path=args.xml, config=cogu_env.default_config())
-    print(f"model: {args.xml}  mass {env_quiet.mj_model.body_subtreemass[1]:.3f} kg")
-    print(f"{'checkpoint':40s} {'8 s @0.15 m/s':>16s} {'fell':>6s} | {'pushes: fall rate':>18s} {'mean len':>9s}")
+    header = False
     for c in args.checkpoints:
         ckpt = latest_checkpoint(Path(c).resolve())
+        cfg = cogu_env.config_for_checkpoint(ckpt)      # each policy with the dynamics it was trained with
+        cfg_push = cogu_env.config_for_checkpoint(ckpt)
+        cfg.push_config.enable = False
+        env_quiet = cogu_env.CoguJoystick(xml_path=args.xml, config=cfg)
+        env_push = cogu_env.CoguJoystick(xml_path=args.xml, config=cfg_push)
+        if not header:
+            print(f"model: {args.xml}  mass {env_quiet.mj_model.body_subtreemass[1]:.3f} kg")
+            print(f"{'checkpoint':40s} {'8 s @0.15 m/s':>16s} {'fell':>6s} | {'pushes: fall rate':>18s} {'mean len':>9s}")
+            header = True
         policy = jax.jit(load_policy(ckpt))
         dist, fell_at = straight_walk(env_quiet, policy)
         rate, length = pushed_episodes(env_push, policy, n_envs=args.n_envs)
