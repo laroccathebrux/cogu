@@ -157,6 +157,19 @@ Robô: 1,24 kg, 417 mm; a política v4 anda igual (0,16 m/s, tremor 0,11, pé a 
 A conferir no hardware: se a placa expõe pinos de I²C livres para a IMU e a corrente máxima do plugue DC e
 dos conectores de servo. Bateria: em aberto (a Turnigy 2200 mAh 2S de 75 × 33 × 19 mm não cabe no tambor).
 
+## Atualização 2026-10-30 (4) — bateria e alimentação compradas
+
+**Bateria: LiPo Leão 2S 7,4 V 1500 mAh, 70 × 30 × 17 mm, 75 g**, plugue Deans T e balanceamento JST-XH. Cabe em
+pé na baia da frente do tambor (canto da frente a 3,9 mm da parede interna). A gaiola passou a ter **0,5 mm de
+folga por lado** (`BATTERY_CAGE_CLEARANCE`; antes 0,3 mm, apertado para uma bateria real e uma peça impressa) e a
+parede de trás continua no mesmo lugar, a 0,59 mm dos servos de yaw. Robô: 1,25 kg; a política v4 anda igual
+(0,16 m/s, 1,71 Hz, tremor 0,11, pé a 26 mm, 44/43 % no ar, sem quedas).
+
+Caminho da energia: bateria → Deans T macho → chave KCD1 (10 A) → XT30 → plugue DC 5,5 × 2,1 mm → placa
+Waveshare. O XT30 é o padrão dos cabos internos; o Deans fica só na bateria, sem cortar o conector dela.
+Comprados também: carregador ImaxRC B3 Pro (2S/3S, balanceamento), fios de silicone 22 AWG (6 cores), IMU
+BMI270 e os 10 servos STS3215. Em aberto: fusível e a posição da chave no CAD.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

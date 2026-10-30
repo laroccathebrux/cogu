@@ -91,10 +91,11 @@ def build_hip_cover() -> CoguPart:
     bx, by, bz = P.BATTERY_2S["size"]
     cx, cy, cz = P.BATTERY_POS
     cw = P.BATTERY_CAGE_WALL
+    gap = 2 * P.BATTERY_CAGE_CLEARANCE
     floor_z = cz - bz / 2
-    cage_out = Box(bx + 0.6 + 2 * cw, by + 0.6 + 2 * cw, DECK_UNDER_Z - (floor_z - cw) + 0.01,
+    cage_out = Box(bx + gap + 2 * cw, by + gap + 2 * cw, DECK_UNDER_Z - (floor_z - cw) + 0.01,
                    align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, floor_z - cw)))
-    cage_in = Box(bx + 0.6, by + 0.6, DECK_UNDER_Z - floor_z + 1.0,
+    cage_in = Box(bx + gap, by + gap, DECK_UNDER_Z - floor_z + 1.0,
                   align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, floor_z)))
     # strap window in the floor (a hook-and-loop strap holds the pack) and a lead exit at the rear
     window = Box(bx - 4, by - 30, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(

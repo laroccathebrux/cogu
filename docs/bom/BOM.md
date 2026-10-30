@@ -5,14 +5,14 @@ ainda podem mudar com o desenho.
 
 | Item | Qtd | Detalhe | Situação |
 |---|---|---|---|
-| Servo Feetech STS3215 7,4 V | 10 (+2 de reserva) | 5 por perna; vem em kits de 4 → 3 kits | estável |
+| Servo Feetech STS3215 7,4 V | 10 (+2 de reserva) | 5 por perna; comprados 10 (1 avulso + 3 kits de 3), sem reserva | **comprado** |
 | Waveshare Servo Driver with ESP32 | 1 | ESP32 + barramento ST/SC (2 portas, uma por perna) + OLED; entrada 6–12 V, plugue 5,5 × 2,1 mm | **comprado** |
-| IMU 6 eixos em placa I²C | 1 | ICM-42688-P ou BMI270 (MPU-6050 funciona, mais ruidosa) | estável |
-| Bateria LiPo 2S (7,4 V) | 1 | em pé no tambor: largura ≤ 34 mm e, com 2 mm de folga, comprimento ≤ 78 / 77 / 73 / 71 / 69 mm para espessura 15 / 16 / 18 / 19 / 20 mm; 1000–2200 mAh, ≥ 20C | **em aberto** |
-| Carregador de balanceamento 2S | 1 | conector JST-XH | estável |
-| Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | do conector da bateria (T-Plug, XT30…) para a entrada da placa | depende da bateria |
-| Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | posição no CAD em aberto | em aberto |
-| Fios de silicone 20–22 AWG, conectores | — | os cabos dos servos vêm com eles | estável |
+| IMU 6 eixos em placa I²C | 1 | BMI270 | **comprado** |
+| Bateria LiPo 2S (7,4 V) | 1 | Leão 1500 mAh, 70 × 30 × 17 mm, 75 g, Deans T + JST-XH; em pé no tambor (regra de encaixe em `parameters.py`) | **comprado** |
+| Carregador de balanceamento 2S | 1 | ImaxRC B3 Pro (2S/3S, 110–220 V), conector JST-XH | **comprado** |
+| Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | montar: Deans T macho → chave → XT30 → plugue DC com rabicho (2 pares Deans T, 10 pares XT30, 5 plugues DC) | **comprado** (peças) |
+| Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | chave gangorra KCD1 10 A (pacote com 10); fusível e posição no CAD em aberto | chave **comprada** |
+| Fios de silicone 20–22 AWG | — | Tassos 22 AWG, 6 cores × 10 m, com termo-retrátil; os cabos dos servos vêm com eles | **comprado** |
 | Chave tátil 6 × 6 mm | 4 | 2 por pé (opcional) | estável |
 | O-ring NBR 25 × 3 mm | 4 | 2 por pé | estável |
 | Rolamento 688ZZ | 10 | um por articulação das pernas | estável |
