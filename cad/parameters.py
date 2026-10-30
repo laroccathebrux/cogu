@@ -220,14 +220,18 @@ PHONE_CAMERA = dict(from_top=22.0, from_left_edge=20.0, bump=(36.0, 36.0, 3.0)) 
 # Hip cover: open-bottom box over the yaw servos, bolted to the 4 pelvis bosses through screw tubes
 # (M3 × 8 from the top, heads at the bottom of Ø6.5 counterbores). Holds the battery (front) and the
 # "spinal cord" board (rear).
-COVER_X = (-48.5, 34.0)         # rear / front outer faces
+COVER_SHAPE = "round"           # "round": a drum under the bubble (its base ring sits flush on the rim); "box": the first cover
+COVER_CENTER_X = -2.0           # drum axis (= the bubble's centre)
+COVER_RADIUS = None             # None: the bubble's outer radius at the deck height (53.6 mm for the 150 mm bubble)
+COVER_X = (-48.5, 34.0)         # box cover: rear / front outer faces
 COVER_TOP_Z = 40.0
 COVER_WALL = 2.4
 COVER_DECK = 3.0
 COVER_CORNER_R = 10.0
 COVER_TUBE_WEB = 3.0            # material under the screw head, above the pelvis boss
 COVER_CRADLE_INSERTS_X = (-14.0, 0.0)   # 2 M3 inserts on the centre line (between the yaw servos)
-COVER_SWITCH = dict(d=12.0, x=-41.0, z=22.0)   # power switch through the left wall, behind the yaw servos
+COVER_SWITCH = None             # the drum leaves no side spot clear of the screw tubes: switch position to settle in hardware
+# COVER_SWITCH = dict(d=12.0, x=-41.0, z=22.0)   # box cover: power switch through the left wall
 # Phone cradle: base plate on the cover deck + two C-rails gripping the phone's long edges.
 # The phone slides in from the top; the top third stays free for the camera module and buttons.
 CRADLE_BASE = 6.0
@@ -241,9 +245,9 @@ CRADLE_CABLE_SLOT = 16.0        # slot under the phone's USB-C port
 # Phone guard (fall protection, under study 2026-10-30). None = no guard (current robot);
 # "frame" = printed frame around the phone; "bubble" = egg of printed ribs around the phone.
 # `uv run python -m cad.export --guard frame|bubble` builds a variant without changing this default.
-PHONE_GUARD = None
+PHONE_GUARD = "bubble"          # chosen 2026-10-30 (ADR-002): 150 mm rib bubble
 GUARD_FRAME = dict(bar=5.0, depth_beyond_phone=8.0, top_clearance=12.0, side_clearance=0.5)
-GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=60.0, radius_z=100.0, wall=3.0,
+GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=75.0, radius_z=100.0, wall=3.0,
                     rib_width=6.0, rib_azimuths=(30.0, 90.0, 150.0, 210.0, 270.0, 330.0),
                     hoop_z=(110.0,), hoop_height=6.0, base_ring=6.0)
 

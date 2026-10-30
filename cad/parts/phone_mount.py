@@ -4,7 +4,7 @@ rear cameras facing forward (+X).
 Both parts are built directly in the pelvis frame (origin between the hip-yaw axes on the yaw
 servos' horn face, +Z up, +X forward) and placed at the origin of the pelvis body.
 
-  hip_cover    open-bottom box from the pelvis plate (z = 0) to COVER_TOP_Z, bolted to the 4 pelvis
+  hip_cover    open-bottom drum (or box) from the pelvis plate (z = 0) to COVER_TOP_Z, bolted to the 4 pelvis
                bosses through screw tubes. Front bay: the 2S battery in a cage hanging from the
                deck. Rear bay: the "spinal cord" board (ESP32-S3 + IMU + bus-servo interface).
                2 M3 inserts on the centre line take the cradle. Printed deck-down: no supports.
@@ -32,15 +32,34 @@ def _cover_boss_positions() -> list[tuple[float, float]]:
     return [(bx, by) for bx in (P.PELVIS_BOSS_X, -P.PELVIS_BOSS_X) for by in (P.PELVIS_BOSS_Y, -P.PELVIS_BOSS_Y)]
 
 
+def cover_radius() -> float:
+    """Drum cover radius: parameters.COVER_RADIUS, or the bubble's outer radius at the deck height so the
+    bubble's base ring sits flush on the drum's rim."""
+    import math
+    if P.COVER_RADIUS:
+        return P.COVER_RADIUS
+    g = P.GUARD_BUBBLE
+    u = (P.COVER_TOP_Z - g["center_z"]) / g["radius_z"]
+    return g["radius_xy"] * math.sqrt(max(0.0, 1.0 - u * u))
+
+
 def build_hip_cover() -> CoguPart:
-    x0, x1 = P.COVER_X
-    length, width = x1 - x0, P.PELVIS_WIDTH
-    xc = (x0 + x1) / 2
     w = P.COVER_WALL
-    outer = rounded_box(length, width, P.COVER_TOP_Z, P.COVER_CORNER_R).moved(Location((xc, 0, 0)))
-    outer = outer.fillet(3.0, outer.edges().group_by(Axis.Z)[-1])            # soft top edge
-    inner = rounded_box(length - 2 * w, width - 2 * w, DECK_UNDER_Z + 1.0, P.COVER_CORNER_R - w).moved(
-        Location((xc, 0, -1.0)))
+    width = P.PELVIS_WIDTH
+    if P.COVER_SHAPE == "round":                                          # drum under the bubble
+        R = cover_radius()
+        outer = Cylinder(R, P.COVER_TOP_Z, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+            Location((P.COVER_CENTER_X, 0, 0)))
+        outer = outer.fillet(2.0, outer.edges().group_by(Axis.Z)[-1])
+        inner = Cylinder(R - w, DECK_UNDER_Z + 1.0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+            Location((P.COVER_CENTER_X, 0, -1.0)))
+    else:
+        x0, x1 = P.COVER_X
+        length, xc = x1 - x0, (x0 + x1) / 2
+        outer = rounded_box(length, width, P.COVER_TOP_Z, P.COVER_CORNER_R).moved(Location((xc, 0, 0)))
+        outer = outer.fillet(3.0, outer.edges().group_by(Axis.Z)[-1])        # soft top edge
+        inner = rounded_box(length - 2 * w, width - 2 * w, DECK_UNDER_Z + 1.0, P.COVER_CORNER_R - w).moved(
+            Location((xc, 0, -1.0)))
     solid: Part = outer - inner
     cutters: Part | None = None
 
@@ -88,7 +107,8 @@ def build_hip_cover() -> CoguPart:
     cutters = cutters + Box(2 * SLOT_HALF_X, P.CRADLE_CABLE_SLOT, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
         Location((P.PHONE_X, 0, P.COVER_TOP_Z)))
     sw = P.COVER_SWITCH
-    cutters = cutters + Cylinder(sw["d"] / 2, 10, rotation=(90, 0, 0)).moved(Location((sw["x"], width / 2, sw["z"])))
+    if sw:
+        cutters = cutters + Cylinder(sw["d"] / 2, 10, rotation=(90, 0, 0)).moved(Location((sw["x"], width / 2, sw["z"])))
     solid = solid - cutters
 
     masses = [

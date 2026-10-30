@@ -104,6 +104,32 @@ Resultado: **1,13 kg, 399 mm**, em pé no MuJoCo (2,6° de inclinação após 3 
 celular, deixaria o robô virar a tela (rosto, câmera frontal) ou as câmeras traseiras para onde anda,
 sem mudar o centro de massa. A ligação sem fio evita cabo torcendo. Custo: +55 g, ~+35 mm de altura.
 
+## Atualização 2026-10-30 (2) — proteção do celular
+
+**Escolhida a bolha de costelas de 150 mm** (`parameters.PHONE_GUARD = "bubble"`, `GUARD_BUBBLE`):
+seis costelas, um aro no equador, um anel na base e um topo, formando um ovo de 150 × 170 mm em volta do
+celular, com um vão na frente das câmeras traseiras. 56 g em PETG, ~15 peças. O robô fica com **1,20 kg e
+415 mm**, centro de massa a 182 mm do chão.
+
+**A tampa do quadril virou um tambor redondo** (`COVER_SHAPE = "round"`) com o mesmo diâmetro da base da
+bolha (107 mm), para a bolha assentar rente. Bateria, placa da medula, servos de yaw e tubos dos parafusos
+cabem (folga mínima 1,4 mm, na bateria). **O furo da chave liga/desliga saiu**: no tambor não há posição
+lateral livre dos tubos dos parafusos; a posição da chave fica para a fase de hardware.
+
+Como foi escolhida (`sim/guard_study.py` e a página interativa de comparação):
+
+| Versão | Direções de queda protegidas | Teste de 8 quedas | Massa extra |
+|---|---|---|---|
+| Sem proteção (tampa quadrada) | 57 % | celular bateu em 3/8, todas para trás | — |
+| Moldura | 100 % | 0/8 | 32 g |
+| Bolha de 120 mm | 92 % | 0/8 | 47 g |
+| **Bolha de 150 mm** | **99,9 %** (folga mínima 1,8 mm, de cima) | 0/8 | 56 g |
+
+"Direções protegidas": em 800 direções, outra parte do robô chega ao chão pelo menos 2 mm antes do
+celular. A bolha de 120 mm deixava as quinas de cima do celular para fora em quedas de cabeça.
+
+Revisável: se a folga de 1,8 mm por cima incomodar, +4 mm de altura na bolha a leva para > 2 mm.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

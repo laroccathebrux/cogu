@@ -1,8 +1,9 @@
 """Compare phone-guard variants (ADR-002 follow-up): mass, CoM, height and what happens to the phone in falls.
 
+    uv run python -m cad.export --out build/guard_study/none   --no-step --guard none
     uv run python -m cad.export --out build/guard_study/frame  --no-step --guard frame
     uv run python -m cad.export --out build/guard_study/bubble --no-step --guard bubble
-    uv run python sim/guard_study.py            # reads build/mjcf (no guard) + the two above
+    uv run python sim/guard_study.py            # reads the three exports above
 
 For each variant (full-contact MJCF, servos holding the rest pose, no policy) the robot is tipped over in
 8 directions (an initial 4 rad/s roll-over about a horizontal axis) and simulated for 2.5 s. Reported per
@@ -24,7 +25,7 @@ import trimesh
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "build" / "guard_study"
-VARIANTS = {"none": ROOT / "build" / "mjcf" / "cogu_lower_body.xml",
+VARIANTS = {"none": OUT / "none" / "mjcf" / "cogu_lower_body.xml",
             "frame": OUT / "frame" / "mjcf" / "cogu_lower_body.xml",
             "bubble": OUT / "bubble" / "mjcf" / "cogu_lower_body.xml"}
 
