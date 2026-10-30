@@ -112,7 +112,7 @@ def _sole_box(parts: dict[str, CoguPart], mirrored: bool) -> tuple[list[float], 
     return [c * MM for c in centre], [h * MM for h in half]
 
 
-GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell"}
+GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell", "phone_guard_frame": "guard", "phone_guard_bubble": "guard"}
 
 
 def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
@@ -151,6 +151,8 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         # the legs (bit 1). Nothing of the legs swings above the pelvis plate (z > 0), where they live.
         shell = ET.SubElement(default, "default", **{"class": "shell"})
         ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.20 0.20 0.22 1")
+        guard = ET.SubElement(default, "default", **{"class": "guard"})     # its convex hull is the protective envelope
+        ET.SubElement(guard, "geom", contype="2", conaffinity="2", rgba="0.86 0.40 0.28 1")
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")
@@ -328,7 +330,11 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="build")
     ap.add_argument("--no-step", action="store_true")
+    ap.add_argument("--guard", choices=["none", "frame", "bubble"], default=None,
+                    help="phone guard variant (default: parameters.PHONE_GUARD)")
     args = ap.parse_args(argv)
+    if args.guard is not None:
+        P.PHONE_GUARD = None if args.guard == "none" else args.guard
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 

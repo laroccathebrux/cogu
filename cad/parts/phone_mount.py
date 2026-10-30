@@ -172,3 +172,85 @@ def phone_camera_pos() -> tuple[float, float, float]:
     return (P.PHONE_X + PH["thickness"] / 2 + cam["bump"][2],
             PH["width"] / 2 - cam["from_left_edge"],
             PHONE_Z0 + PH["height"] - cam["from_top"])
+
+
+# ---------------------------------------------------------------------------
+# Phone guards (fall protection, under study). Both are concepts: built as one solid each,
+# printed in several pieces later. Pelvis frame, like the parts above.
+# ---------------------------------------------------------------------------
+
+def build_guard_frame() -> CoguPart:
+    """Rectangular frame around the phone: two posts outside the cradle rails and a top bar above the
+    phone, deeper than the phone so that a fall on either face lands on the frame, not on the glass."""
+    g = P.GUARD_FRAME
+    bar = g["bar"]
+    depth = PH["thickness"] + 2 * g["depth_beyond_phone"]
+    y_in = RAIL_INNER_Y + P.CRADLE_WALL + g["side_clearance"]          # outside the cradle rails
+    z0 = P.COVER_TOP_Z
+    z_top = PHONE_Z0 + PH["height"] + g["top_clearance"]
+    solid: Part | None = None
+    for s in (1.0, -1.0):
+        post = Box(depth, bar, z_top + bar - z0, align=(Align.CENTER, Align.MIN if s > 0 else Align.MAX, Align.MIN))
+        post = post.moved(Location((P.PHONE_X, s * y_in, z0)))
+        solid = post if solid is None else solid + post
+    top = Box(depth, 2 * (y_in + bar), bar, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+        Location((P.PHONE_X, 0, z_top)))
+    solid = solid + top
+    solid = solid.fillet(2.0, solid.edges().filter_by(Axis.Y))          # rounded corners on the bumpers
+    # lightening windows through the posts (they only have to stop the phone, not carry load)
+    for s in (1.0, -1.0):
+        win = Box(depth - 2 * 3.0, bar + 2, (z_top - z0) - 40, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+            Location((P.PHONE_X, s * (y_in + bar / 2), z0 + 20)))
+        solid = solid - win
+    return CoguPart(
+        name="phone_guard_frame",
+        solid=solid,
+        print_rotation=Rotation(0, 0, 0),
+        print_notes="Concept: frame around the phone, printed flat (posts and top bar as separate pieces).",
+        infill_factor=0.9,
+        printed_in_pieces=3,
+    )
+
+
+def build_guard_bubble() -> CoguPart:
+    """Egg of printed ribs around the phone (like a bubble-football suit): meridian ribs from a base ring on
+    the hip cover up to the top, an equator hoop, a gap in front of the rear cameras."""
+    import math
+    from build123d import Sphere, scale
+
+    g = P.GUARD_BUBBLE
+    rx, rz, wall = g["radius_xy"], g["radius_z"], g["wall"]
+    centre = Location((g["center_x"], 0.0, g["center_z"]))
+    outer = scale(Sphere(1.0), (rx, rx, rz)).moved(centre)
+    inner = scale(Sphere(1.0), (rx - wall, rx - wall, rz - wall)).moved(centre)
+    shell = outer - inner
+    z_base = P.COVER_TOP_Z
+    keep = Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
+    shell = shell & keep                                                   # sits on the hip cover deck
+    pieces: Part | None = None
+    for az in g["rib_azimuths"]:                                           # meridian ribs
+        slab = Box(2 * rx + 20, g["rib_width"], 2 * rz + 20, align=(Align.MIN, Align.CENTER, Align.CENTER))
+        slab = slab.rotate(Axis.Z, az).moved(centre)
+        rib = shell & slab
+        pieces = rib if pieces is None else pieces + rib
+    for hz in g["hoop_z"]:                                                 # horizontal hoops
+        band = Box(400, 400, g["hoop_height"], align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
+            Location((0, 0, hz)))
+        pieces = pieces + (shell & band)
+    base = Box(400, 400, g["base_ring"], align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
+    pieces = pieces + (shell & base)
+    top_z = g["center_z"] + rz - 10.0                                     # small crown where the ribs meet
+    crown = Box(400, 400, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, top_z)))
+    pieces = pieces + (shell & crown)
+    n_pieces = 2 * len(g["rib_azimuths"]) + 2
+    return CoguPart(
+        name="phone_guard_bubble",
+        solid=pieces,
+        print_rotation=Rotation(0, 0, 0),
+        print_notes=f"Concept: rib cage around the phone, printed as ~{n_pieces} pieces (ribs split at the hoop).",
+        infill_factor=0.95,
+        printed_in_pieces=n_pieces,
+    )
+
+
+GUARDS = {"frame": build_guard_frame, "bubble": build_guard_bubble}

@@ -43,6 +43,9 @@ class CoguPart:
     # printed mass = CAD volume × density × this. None -> parameters.INFILL_MASS_FACTOR (solid parts
     # printed with 25 % infill). Thin-walled shells are all perimeters: use ~0.95.
     infill_factor: float | None = None
+    # concept parts larger than the printer: printed as N pieces (not split in CAD yet).
+    # The max-dimension rule is reported as a note instead of a violation.
+    printed_in_pieces: int = 0
 
     @property
     def density_g_mm3(self) -> float:

@@ -238,6 +238,15 @@ CRADLE_LIP = 3.0                # rail lips overlap the phone faces by this much
 CRADLE_CLEARANCE = 0.4
 CRADLE_CABLE_SLOT = 16.0        # slot under the phone's USB-C port
 
+# Phone guard (fall protection, under study 2026-10-30). None = no guard (current robot);
+# "frame" = printed frame around the phone; "bubble" = egg of printed ribs around the phone.
+# `uv run python -m cad.export --guard frame|bubble` builds a variant without changing this default.
+PHONE_GUARD = None
+GUARD_FRAME = dict(bar=5.0, depth_beyond_phone=8.0, top_clearance=12.0, side_clearance=0.5)
+GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=60.0, radius_z=100.0, wall=3.0,
+                    rib_width=6.0, rib_azimuths=(30.0, 90.0, 150.0, 210.0, 270.0, 330.0),
+                    hoop_z=(110.0,), hoop_height=6.0, base_ring=6.0)
+
 # Electronics (bought parts). Positions are box centres in the pelvis frame.
 BATTERY_2S = dict(size=(16.0, 70.0, 34.0), mass_g=65.0)   # x × y × z: 2S 1000 mAh pack on its long edge, front bay
 BATTERY_POS = (21.5, 0.0, 19.0)
