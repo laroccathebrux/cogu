@@ -12,6 +12,8 @@ skipped), reporting the numbers that separate a gait from a shuffle:
     foot lift    mean of each step's swing apex (mm). The training target is max_foot_height.
     air time     mean duration of a swing (s); duty = share of time a foot is on the floor.
     slip         foot speed while touching the floor (m/s); ideally ~0, compare with body speed.
+    air L / R    share of time each foot is off the floor: a limp shows as one of them near 0 %.
+    lift L / R   highest swing of each foot (mm).
 """
 
 from __future__ import annotations
@@ -29,7 +31,7 @@ import cogu_env  # noqa: E402
 from play import Sim2Sim, checkpoint_label  # noqa: E402
 from rollout import latest_checkpoint  # noqa: E402
 
-GOOD = {"step freq": "1.5–2.5 Hz", "jitter": "< 0.2", "joint swing": "15–40°", "foot lift": "≥ 20 mm",
+GOOD = {"air L / R": "both 30–50 %", "lift L / R": "both ≥ 20 mm", "step freq": "1.5–2.5 Hz", "jitter": "< 0.2", "joint swing": "15–40°", "foot lift": "≥ 20 mm",
         "air time": "0.2–0.4 s", "duty": "0.5–0.7", "slip": "< 0.03 m/s"}
 
 
@@ -93,12 +95,17 @@ def measure(sim: Sim2Sim, seconds: float = 8.0, skip: float = 1.0) -> dict:
     out["duty"] = float(contact.mean())
     out["slip"] = float(np.nanmean(slip))
     out["speed"] = float(np.linalg.norm(x[-1] - x[0]) / (len(x) * dt))
+    air = 100 * (1 - contact.mean(0))
+    out["air L / R"] = f"{air[0]:.0f} / {air[1]:.0f} %"
+    out["lift L / R"] = f"{fz[:, 0].max() * 1000:.1f} / {fz[:, 1].max() * 1000:.1f} mm"
     return out
 
 
 def fmt(key: str, v) -> str:
     if v is None:
         return "-"
+    if isinstance(v, str):
+        return v
     return {"step freq": f"{v:.2f} Hz", "jitter": f"{v:.2f}", "joint swing": f"{v:.1f}°",
             "foot lift": f"{v:.1f} mm", "air time": f"{v:.2f} s", "duty": f"{v:.2f}", "slip": f"{v:.3f} m/s",
             "speed": f"{v:.3f} m/s", "steps": f"{v}"}.get(key, str(v))
@@ -121,7 +128,8 @@ def main(argv=None) -> int:
         sim.command[:] = (args.vx, args.vy, args.wz)
         rows.append(measure(sim, args.seconds))
         labels.append(checkpoint_label(ckpt))
-    keys = ["speed", "step freq", "jitter", "joint swing", "foot lift", "air time", "steps", "duty", "slip"]
+    keys = ["speed", "step freq", "jitter", "joint swing", "foot lift", "air time", "steps", "duty", "slip",
+            "air L / R", "lift L / R"]
     w = max(22, *(len(l) for l in labels))
     print(f"command vx={args.vx} vy={args.vy} wz={args.wz}, {args.seconds:.0f} s from rest\n")
     print(f"{'':12s}" + "".join(f"{l:>{w}s}" for l in labels) + f"{'a gait looks like':>22s}")

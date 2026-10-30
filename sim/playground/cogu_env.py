@@ -75,6 +75,7 @@ def default_config() -> config_dict.ConfigDict:
                 feet_slip=-0.5,           # v0/v1: -0.1 (feet slid at half the body speed)
                 feet_phase=1.5,           # v0/v1: 0.5
                 feet_height=-1.0,         # new: swing apex below max_foot_height is penalised at touchdown
+                feet_planted=-1.0,        # new: a foot on the floor > max_contact_time while walking (v3 limped)
                 # misc
                 termination=-1.0,
                 stand_still=-0.3,
@@ -84,6 +85,7 @@ def default_config() -> config_dict.ConfigDict:
             tracking_sigma=0.05,      # (m/s)²; Cogu commands are ~0.1–0.3 m/s
             max_foot_height=0.025,    # swing apex (m)
             feet_air_time_range=[0.15, 0.4],   # s; v0/v1: 0.1–0.35
+            max_contact_time=0.5,     # s; at 1.5–2 Hz each foot should lift at least every ~0.6 s
             base_height_target=0.20,  # rest pelvis height is 0.205 m
         ),
         push_config=config_dict.create(enable=True, interval_range=[3.0, 6.0], magnitude_range=[0.05, 0.3]),
@@ -227,6 +229,7 @@ class CoguJoystick(mjx_env.MjxEnv):
             "ctrl_history": jp.tile(self._default_pose, (n_delay + 1, 1)),
             "action_delay": delay,
             "feet_air_time": jp.zeros(2),
+            "feet_contact_time": jp.zeros(2),
             "last_contact": jp.zeros(2, dtype=bool),
             "swing_peak": jp.zeros(2),
             "phase_dt": phase_dt,
@@ -274,6 +277,7 @@ class CoguJoystick(mjx_env.MjxEnv):
         contact_filt = contact | state.info["last_contact"]
         first_contact = (state.info["feet_air_time"] > 0.0) * contact_filt
         state.info["feet_air_time"] += self.dt
+        state.info["feet_contact_time"] = (state.info["feet_contact_time"] + self.dt) * contact
         p_fz = data.site_xpos[self._feet_site_id][..., -1]
         state.info["swing_peak"] = jp.maximum(state.info["swing_peak"], p_fz)
 
@@ -366,6 +370,7 @@ class CoguJoystick(mjx_env.MjxEnv):
             "feet_slip": self._cost_feet_slip(data, contact),
             "feet_phase": self._reward_feet_phase(data, info["phase"], cmd),
             "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, cmd),
+            "feet_planted": self._cost_feet_planted(info["feet_contact_time"], cmd),
             # cast: a raw bool here makes XLA-CPU compile a ~3x slower step (measured)
             "termination": done.astype(jp.float32),
             "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * (jp.linalg.norm(cmd) < 0.05),
@@ -393,6 +398,12 @@ class CoguJoystick(mjx_env.MjxEnv):
         t_min, t_max = self._config.reward_config.feet_air_time_range
         reward = jp.sum(jp.clip((air_time - t_min) * first_contact, max=t_max - t_min))
         return reward * (jp.linalg.norm(cmd) > 0.05)
+
+    def _cost_feet_planted(self, contact_time, cmd):
+        """Seconds (capped at 1) each foot has stayed on the floor beyond max_contact_time, while asked to move.
+        Without it the v3 policy kept the right foot planted and tapped the left one."""
+        over = jp.clip(contact_time - self._config.reward_config.max_contact_time, 0.0, 1.0)
+        return jp.sum(over) * (jp.linalg.norm(cmd) > 0.05)
 
     def _cost_feet_height(self, swing_peak, first_contact, cmd):
         """At each touchdown, how far the swing apex stayed below max_foot_height (squared, relative)."""

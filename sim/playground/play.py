@@ -17,6 +17,7 @@ Keys (in the viewer window):
     PgUp / PgDn  sideways left / right  +/− 0.05 m/s
     End          stop (zero command)
     Home         reset the robot to the rest pose
+    , / .        previous / next checkpoint of the same training run (the policy at each evaluation)
     Ctrl + right-drag on a body: push the robot (MuJoCo's perturbation)
 
 The env config each checkpoint was trained with (action filter, scales) is read from the
@@ -53,6 +54,7 @@ REPO_ROOT = HERE.parents[1]
 # GLFW key codes (the passive viewer forwards raw GLFW keys to key_callback)
 KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP = 262, 263, 264, 265
 KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END = 266, 267, 268, 269
+KEY_COMMA, KEY_PERIOD = 44, 46
 
 
 class Sim2Sim:
@@ -141,6 +143,14 @@ class Sim2Sim:
         return float(np.dot(self.d.qvel[:3], heading))
 
 
+def run_checkpoints(ckpt: Path) -> list[Path]:
+    """All step checkpoints of the training run `ckpt` belongs to (empty for a published folder)."""
+    if not ckpt.name.isdigit():
+        return []
+    return sorted(p for p in ckpt.parent.iterdir()
+                  if p.is_dir() and p.name.isdigit() and (p / "ppo_network_config.json").exists())
+
+
 def checkpoint_label(ckpt: Path) -> str:
     """'cogu_walk_v2 · 4,505,600 steps' for a training step dir, the folder name for a published one."""
     if ckpt.name.isdigit():
@@ -166,7 +176,7 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
     import mujoco.viewer
 
     lims = sim.cfg
-    pending = {"reset": False}
+    pending = {"reset": False, "browse": 0}
 
     def on_key(key: int):
         c = sim.command
@@ -186,6 +196,10 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
             c[:] = 0.0
         elif key == KEY_HOME:
             pending["reset"] = True
+        elif key == KEY_COMMA:
+            pending["browse"] = -1
+        elif key == KEY_PERIOD:
+            pending["browse"] = +1
         c[:] = np.round(c, 3)
 
     print(__doc__.split("Keys (in the viewer window):")[1].split("This is")[0])
@@ -205,6 +219,7 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
         v.cam.distance, v.cam.azimuth, v.cam.elevation = 1.0, 135.0, -15.0
         falls = 0
         last_poll = time.perf_counter()
+        last_newest = sim.ckpt                       # follow only jumps when a NEW checkpoint appears
         while v.is_running():
             t0 = time.perf_counter()
             if follow is not None and t0 - last_poll > 5.0:          # a new checkpoint from train.py?
@@ -213,13 +228,25 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
                     newest = latest_checkpoint(follow)
                 except FileNotFoundError:
                     newest = sim.ckpt
-                if newest != sim.ckpt and (newest / "ppo_network_config.json").exists():
+                if newest != last_newest and (newest / "ppo_network_config.json").exists():
+                    last_newest = newest
                     time.sleep(2.0)                                   # let orbax finish writing
                     with v.lock():
                         sim.load(newest)
                         sim.reset()
                         falls = 0
                     print(f"now driving: {checkpoint_label(newest)}")
+            if pending["browse"]:                                     # , / . : walk through the run
+                ckpts = run_checkpoints(sim.ckpt)
+                if sim.ckpt in ckpts:
+                    i = min(max(ckpts.index(sim.ckpt) + pending["browse"], 0), len(ckpts) - 1)
+                    if ckpts[i] != sim.ckpt:
+                        with v.lock():
+                            sim.load(ckpts[i])
+                            sim.reset()
+                            falls = 0
+                        print(f"now driving: {checkpoint_label(ckpts[i])}")
+                pending["browse"] = 0
             with v.lock():
                 if pending["reset"]:
                     sim.reset()
