@@ -170,6 +170,14 @@ Waveshare. O XT30 é o padrão dos cabos internos; o Deans fica só na bateria, 
 Comprados também: carregador ImaxRC B3 Pro (2S/3S, balanceamento), fios de silicone 22 AWG (6 cores), IMU
 BMI270 e os 10 servos STS3215. Em aberto: fusível e a posição da chave no CAD.
 
+## Atualização 2026-10-30 (5) — peças de montagem compradas
+
+Comprados também: 10 rolamentos 688ZZ, insertos M3 × 5,7 × 4,6 e parafusos M3 × 8 Allen, O-rings NBR 25 × 3,
+chaves táteis 6 × 6 × 5 mm dos pés, porta-fusível mini lâmina com fusíveis de 10 A, fita de velcro de 10 mm para a
+gaiola da bateria, bolsa antichamas e alarme de tensão para a LiPo, e 1 kg de PETG cinza-claro (a paleta ainda diz
+branco). Falta só o PETG coral e os 2 servos de reserva. A parte de baixo vai ser impressa primeiro em PLA Lite
+laranja, para conferir encaixes; a peça final continua em PETG.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

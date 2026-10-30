@@ -1,7 +1,7 @@
 # BOM — robô com celular (ADR-002), 2026-10-30
 
-Fase só de simulação: os itens marcados **estável** não dependem de mudanças no CAD; os marcados **em aberto**
-ainda podem mudar com o desenho.
+Tudo comprado em 30/10/2026, exceto o PETG coral dos pés e do aro do tambor e os 2 servos de reserva. Os itens
+marcados **estável** não dependem de mudanças no CAD.
 
 | Item | Qtd | Detalhe | Situação |
 |---|---|---|---|
@@ -11,16 +11,20 @@ ainda podem mudar com o desenho.
 | Bateria LiPo 2S (7,4 V) | 1 | Leão 1500 mAh, 70 × 30 × 17 mm, 75 g, Deans T + JST-XH; em pé no tambor (regra de encaixe em `parameters.py`) | **comprado** |
 | Carregador de balanceamento 2S | 1 | ImaxRC B3 Pro (2S/3S, 110–220 V), conector JST-XH | **comprado** |
 | Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | montar: Deans T macho → chave → XT30 → plugue DC com rabicho (2 pares Deans T, 10 pares XT30, 5 plugues DC) | **comprado** (peças) |
-| Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | chave gangorra KCD1 10 A (pacote com 10); fusível e posição no CAD em aberto | chave **comprada** |
+| Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | chave gangorra KCD1 10 A (pacote com 10); porta-fusível mini lâmina com fio DNI 7514 + fusíveis mini lâmina 10 A (DNI, 10 un.); posição da chave no CAD em aberto | **comprado** |
 | Fios de silicone 20–22 AWG | — | Tassos 22 AWG, 6 cores × 10 m, com termo-retrátil; os cabos dos servos vêm com eles | **comprado** |
-| Chave tátil 6 × 6 mm | 4 | 2 por pé (opcional) | estável |
-| O-ring NBR 25 × 3 mm | 4 | 2 por pé | estável |
-| Rolamento 688ZZ | 10 | um por articulação das pernas | estável |
-| Inserto M3 × 5,7 mm / parafuso M3 × 8 | 6 / 6 | 4 tambor→pelve, 2 berço→tambor | estável |
-| Filamento PETG branco | ~350 g | pernas, pelve, tambor, berço | estável |
+| Chave tátil 6 × 6 × 5 mm | 4 | 2 por pé (opcional); kit com 10 | **comprado** |
+| O-ring NBR 25 × 3 mm | 4 | 2 por pé; kit com 5 | **comprado** |
+| Rolamento 688ZZ | 10 | um por articulação das pernas; kit com 10 | **comprado** |
+| Inserto M3 × 5,7 mm / parafuso M3 × 8 | 6 / 6 | 4 tambor→pelve, 2 berço→tambor; insertos M3 × 5,7 × 4,6 (50 un.), parafusos Allen cilíndricos inox (20 un.) | **comprado** |
+| Filamento PETG branco | ~350 g | pernas, pelve, tambor, berço; comprado Bambu Lab PETG HF **cinza-claro** 1 kg (a paleta em `parameters.PALETTE` ainda diz branco) | **comprado** |
 | Filamento PETG coral | ~30 g | pés e aro do tambor (troca de cor) | estável |
 | Filamento PCTG prata | ~100 g | bolha (exceção de material, ADR-002) | **comprado** |
 | Filamento TPU 95A preto | ~60 g | capas da bolha (exceção de material, ADR-002) | **comprado** |
+| Fita de velcro dupla face 10 mm | ~20 cm | prende a bateria na gaiola (a janela do piso deixa passar até 13 mm); rolo de 5 m | **comprado** |
+| Bolsa antichamas para LiPo | 1 | para carregar e guardar a bateria | **comprado** |
+| Alarme de tensão LiPo 1–8S com visor | 1 | no conector de balanceamento, apita antes de descarregar demais | **comprado** |
+| Filamento PLA Lite laranja | ~200 g | impressão de teste da parte de baixo (`build/print/parte_de_baixo`), já em casa | já tinha |
 
 Não precisa mais: Raspberry Pi Zero, tela CYD, câmera Pi, ToF VL53L5CX, anel de LEDs, BNO055, ESP32-S3
 separada, interface de barramento separada e regulador de 5 V (a placa Waveshare regula a própria ESP32).
