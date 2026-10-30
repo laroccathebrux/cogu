@@ -275,6 +275,8 @@ def build_guard_bubble() -> CoguPart:
     return CoguPart(
         name="phone_guard_bubble",
         solid=pieces,
+        material="PCTG",
+        density_g_cm3=P.PCTG_DENSITY_G_CM3,
         print_rotation=Rotation(0, 0, 0),
         print_notes=f"Concept: rib cage around the phone, printed as ~{n_pieces} pieces (ribs split at the hoop).",
         infill_factor=0.95,
@@ -283,3 +285,51 @@ def build_guard_bubble() -> CoguPart:
 
 
 GUARDS = {"frame": build_guard_frame, "bubble": build_guard_bubble}
+
+
+def _ellipsoid(dr: float) -> Part:
+    """The bubble's ellipsoid grown (dr > 0) or shrunk (dr < 0) by dr, in the pelvis frame."""
+    from build123d import Sphere, scale
+    g = P.GUARD_BUBBLE
+    return scale(Sphere(1.0), (g["radius_xy"] + dr, g["radius_xy"] + dr, g["radius_z"] + dr)).moved(
+        Location((g["center_x"], 0.0, g["center_z"])))
+
+
+def _zband(z0: float, z1: float) -> Part:
+    return Box(400, 400, z1 - z0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z0)))
+
+
+def build_guard_tpu() -> CoguPart:
+    """TPU 95A covers on the bubble's ground-contact parts, press-fitted ("tyres"):
+    a C-section on each hoop (outer sleeve + lips over its top and bottom edges), an outer sleeve with a top
+    lip on the base ring, and a cap over the crown. Kept as separate solids (one print each)."""
+    g, c = P.GUARD_BUBBLE, P.GUARD_TPU
+    tt, lip, wall = c["thickness"], c["lip"], g["wall"]
+    sleeve_shell = _ellipsoid(tt) - _ellipsoid(0.0)              # outside the PETG/PCTG surface
+    lip_shell = _ellipsoid(0.0) - _ellipsoid(-min(lip, wall))      # over the part's edges, inside its outline
+    pieces: list[Part] = []
+    for hz in g["hoop_z"]:
+        h = g["hoop_height"]
+        tyre = (sleeve_shell & _zband(hz - h / 2 - tt, hz + h / 2 + tt)) \
+            + (lip_shell & _zband(hz + h / 2, hz + h / 2 + tt)) + (lip_shell & _zband(hz - h / 2 - tt, hz - h / 2))
+        pieces.append(tyre)
+    zb = P.COVER_TOP_Z
+    base = (sleeve_shell & _zband(zb, zb + g["base_ring"] + tt)) + (lip_shell & _zband(zb + g["base_ring"], zb + g["base_ring"] + tt))
+    pieces.append(base)
+    top = g["center_z"] + g["radius_z"]
+    pieces.append(sleeve_shell & _zband(top - c["crown_cap"], top + tt + 1))
+    solids = [so for pc in pieces for so in pc.solids()]
+    for pc in pieces:
+        if pc.volume < 1.0:
+            raise RuntimeError("a TPU cover came out empty")
+    return CoguPart(
+        name="phone_guard_tpu",
+        solid=Part(Compound(children=solids).wrapped),
+        material="TPU",
+        density_g_cm3=P.TPU_DENSITY_G_CM3,
+        infill_factor=1.0,
+        printed_in_pieces=len(solids),          # each cover prints on its own (largest: the hoop tyre, ~154 mm)
+        print_rotation=Rotation(0, 0, 0),
+        print_notes="TPU 95A, black: hoop tyre(s), base-ring sleeve and crown cap, printed flat and slow, "
+                    "press-fitted over the PCTG parts. Replaceable wear parts.",
+    )

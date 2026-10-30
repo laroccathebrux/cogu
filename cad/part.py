@@ -46,11 +46,14 @@ class CoguPart:
     # concept parts larger than the printer: printed as N pieces (not split in CAD yet).
     # The max-dimension rule is reported as a note instead of a violation.
     printed_in_pieces: int = 0
+    # material density override (g/cm3); None = PETG (parameters.PETG_DENSITY_G_CM3)
+    density_g_cm3: float | None = None
 
     @property
     def density_g_mm3(self) -> float:
         f = P.INFILL_MASS_FACTOR if self.infill_factor is None else self.infill_factor
-        return P.PETG_DENSITY_G_CM3 * f / 1000.0
+        rho = P.PETG_DENSITY_G_CM3 if self.density_g_cm3 is None else self.density_g_cm3
+        return rho * f / 1000.0
 
     # --- mass properties (CAD volume × density × infill factor) ---
     @property

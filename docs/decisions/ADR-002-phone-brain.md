@@ -130,6 +130,19 @@ celular. A bolha de 120 mm deixava as quinas de cima do celular para fora em que
 
 Revisável: se a folga de 1,8 mm por cima incomodar, +4 mm de altura na bolha a leva para > 2 mm.
 
+**Exceção às regras de material (só para a bolha), decidida em 2026-10-30.** A regra do projeto é PLA/PETG
+(ADR-000 §3). Para a bolha, que leva pancada repetida e serve de apoio para o robô levantar:
+
+- **Costelas, aro, anel e topo em PCTG prata**: copoliéster da mesma família do PETG, bem mais tenaz ao
+  impacto, que imprime na A1 Mini com ajustes de PETG. Densidade 1,23 g/cm³.
+- **Capas de TPU 95A preto** ("pneus" encaixados por pressão, trocáveis): perfil em C no aro do equador,
+  capa com aba no anel da base e um chapéu no topo, 2 mm de espessura. Amortecem e agarram o chão.
+
+Registro em `parameters.MATERIAL_EXCEPTIONS`; as regras de design aceitam esses materiais só nessas peças.
+Na simulação completa, PCTG tem atrito 0,4 e TPU 1,0 contra o chão (prioridade de contato 2), para a futura
+política de levantar aprender a se apoiar nas capas. Com as capas: 55 g de PCTG + 36 g de TPU, robô com
+**1,24 kg e 417 mm**, centro de massa a 186 mm, e **100 %** das direções de queda protegidas (pior folga 3,8 mm).
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

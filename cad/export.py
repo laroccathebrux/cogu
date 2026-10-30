@@ -112,7 +112,8 @@ def _sole_box(parts: dict[str, CoguPart], mirrored: bool) -> tuple[list[float], 
     return [c * MM for c in centre], [h * MM for h in half]
 
 
-GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell", "phone_guard_frame": "guard", "phone_guard_bubble": "guard"}
+GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell", "phone_guard_frame": "guard", "phone_guard_bubble": "guard",
+              "phone_guard_tpu": "guard_tpu"}
 
 
 def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
@@ -151,8 +152,14 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         # the legs (bit 1). Nothing of the legs swings above the pelvis plate (z > 0), where they live.
         shell = ET.SubElement(default, "default", **{"class": "shell"})
         ET.SubElement(shell, "geom", contype="2", conaffinity="2", rgba="0.20 0.20 0.22 1")
+        # Guard friction against the floor: MuJoCo takes the max of both geoms' friction unless one has a higher
+        # priority, so the guard parts get priority 2 and their own coefficients: hard plastic slides, TPU grips.
         guard = ET.SubElement(default, "default", **{"class": "guard"})     # its convex hull is the protective envelope
-        ET.SubElement(guard, "geom", contype="2", conaffinity="2", rgba="0.86 0.40 0.28 1")
+        ET.SubElement(guard, "geom", contype="2", conaffinity="2", priority="2", friction="0.4 0.005 0.0001",
+                      rgba="0.78 0.80 0.82 1")
+        tpu = ET.SubElement(default, "default", **{"class": "guard_tpu"})
+        ET.SubElement(tpu, "geom", contype="2", conaffinity="2", priority="2", friction="1.0 0.005 0.0001",
+                      rgba="0.08 0.08 0.09 1")
     ET.SubElement(default, "site", size="0.004", rgba="1 0 0 1", group="4")
     ET.SubElement(default, "position", kp="8", kv="0.3", forcerange="-1.9 1.9", ctrllimited="true")
     asset = ET.SubElement(root, "asset")

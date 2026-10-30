@@ -30,10 +30,12 @@ VARIANTS = {"none": OUT / "none" / "mjcf" / "cogu_lower_body.xml",
             "bubble": OUT / "bubble" / "mjcf" / "cogu_lower_body.xml"}
 
 COLORS = {"legs": (226, 220, 206), "hip": (52, 54, 60), "phone": (18, 18, 22), "camera": (90, 92, 98),
-          "guard": (225, 105, 70)}
+          "guard": (198, 203, 209), "tpu": (22, 22, 24)}
 
 
 def category(name: str) -> str | None:
+    if name == "pelvis_phone_guard_tpu":
+        return "tpu"
     if name.startswith("pelvis_phone_guard"):
         return "guard"
     if name in ("pelvis_hip_cover", "pelvis_phone_cradle", "pelvis_pelvis"):
@@ -133,7 +135,7 @@ def main() -> int:
         if name == "none":
             export_glb(m, {"legs", "hip", "phone", "camera"}, OUT / "base.glb")
         else:
-            export_glb(m, {"guard"}, OUT / f"guard_{name}.glb")
+            export_glb(m, {"guard", "tpu"}, OUT / f"guard_{name}.glb")
     (OUT / "summary.json").write_text(json.dumps(summary, indent=2))
     for f in sorted(OUT.glob("*.glb")):
         print(f"  {f.name}: {f.stat().st_size / 1e6:.1f} MB")

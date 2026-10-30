@@ -53,6 +53,12 @@ WALL_STRUCTURAL = 2.4       # 6 perimeters — around bearings and horns
 CLEARANCE_TIGHT = 0.2       # press-ish fits (bearing seats, horn recess)
 CLEARANCE_LOOSE = 0.3       # sliding fits (fork vs servo body)
 MATERIALS = ("PETG", "PLA")
+# Exceptions to the PLA/PETG rule, per part (ADR-002, 2026-10-30), only for the phone bubble:
+#   ribs in PCTG (a tougher copolyester that prints like PETG on the A1 Mini; silver),
+#   ground-contact covers in TPU 95A (impact absorption and grip for getting up; black, replaceable).
+MATERIAL_EXCEPTIONS = {"phone_guard_bubble": "PCTG", "phone_guard_tpu": "TPU"}
+PCTG_DENSITY_G_CM3 = 1.23
+TPU_DENSITY_G_CM3 = 1.21
 PETG_DENSITY_G_CM3 = 1.27
 INFILL_MASS_FACTOR = 0.55   # printed solid mass ≈ CAD volume × density × this (walls + 25 % infill)
 
@@ -250,6 +256,10 @@ GUARD_FRAME = dict(bar=5.0, depth_beyond_phone=8.0, top_clearance=12.0, side_cle
 GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=75.0, radius_z=100.0, wall=3.0,
                     rib_width=6.0, rib_azimuths=(30.0, 90.0, 150.0, 210.0, 270.0, 330.0),
                     hoop_z=(110.0,), hoop_height=6.0, base_ring=6.0)
+# TPU covers on the bubble's ground-contact parts (press-fit "tyres", printed in TPU 95A):
+# C-section on each hoop (lips over its top and bottom edges), outer sleeve + top lip on the base ring,
+# and a cap over the crown. None to leave them out.
+GUARD_TPU = dict(thickness=2.0, lip=1.5, crown_cap=12.0)   # 2.5 mm weighed 50 g
 
 # Electronics (bought parts). Positions are box centres in the pelvis frame.
 BATTERY_2S = dict(size=(16.0, 70.0, 34.0), mass_g=65.0)   # x × y × z: 2S 1000 mAh pack on its long edge, front bay

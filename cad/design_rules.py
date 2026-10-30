@@ -24,6 +24,9 @@ def check_max_dimension(part: CoguPart) -> list[str]:
 
 
 def check_material(part: CoguPart) -> list[str]:
+    if P.MATERIAL_EXCEPTIONS.get(part.name) == part.material:
+        print(f"  note: {part.name} is {part.material} (exception in parameters.MATERIAL_EXCEPTIONS, ADR-002)")
+        return []
     if part.material not in P.MATERIALS:
         return [f"{part.name}: material {part.material!r} not in {P.MATERIALS}"]
     return []

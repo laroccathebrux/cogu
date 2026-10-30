@@ -62,11 +62,12 @@ def build_parts() -> dict[str, CoguPart]:
         "hip_cover": phone_mount.build_hip_cover(),
         "phone_cradle": phone_mount.build_phone_cradle(),
         **({f"phone_guard_{P.PHONE_GUARD}": phone_mount.GUARDS[P.PHONE_GUARD]()} if P.PHONE_GUARD else {}),
+        **({"phone_guard_tpu": phone_mount.build_guard_tpu()} if P.PHONE_GUARD == "bubble" and P.GUARD_TPU else {}),
     }
 
 
 # parts that are never mirrored (pelvis-frame parts on the centre line): one mesh / one STL
-SYMMETRIC_PARTS = ("pelvis", "hip_cover", "phone_cradle", "phone_guard_frame", "phone_guard_bubble")
+SYMMETRIC_PARTS = ("pelvis", "hip_cover", "phone_cradle", "phone_guard_frame", "phone_guard_bubble", "phone_guard_tpu")
 # parts printed from a single STL (the back hub is asymmetric but its mirror image is the same part turned over)
 ONE_PRINT_FILE = SYMMETRIC_PARTS + ("back_hub",)
 
@@ -118,6 +119,8 @@ def robot() -> Body:
     root.parts += [PartInstance("hip_cover", (0, 0, 0)), PartInstance("phone_cradle", (0, 0, 0))]
     if P.PHONE_GUARD:
         root.parts.append(PartInstance(f"phone_guard_{P.PHONE_GUARD}", (0, 0, 0)))
+    if P.PHONE_GUARD == "bubble" and P.GUARD_TPU:
+        root.parts.append(PartInstance("phone_guard_tpu", (0, 0, 0)))
     return root
 
 
@@ -150,6 +153,8 @@ def total_height() -> float:
     top = phone_mount.PHONE_Z0 + P.PHONE["height"]
     if P.PHONE_GUARD:
         top = max(top, phone_mount.GUARDS[P.PHONE_GUARD]().solid.bounding_box().max.Z)
+    if P.PHONE_GUARD == "bubble" and P.GUARD_TPU:
+        top = max(top, phone_mount.build_guard_tpu().solid.bounding_box().max.Z)
     return standing_pelvis_height() + top
 
 
