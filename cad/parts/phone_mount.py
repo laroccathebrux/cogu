@@ -14,7 +14,7 @@ servos' horn face, +Z up, +X forward) and placed at the origin of the pelvis bod
 
 from __future__ import annotations
 
-from build123d import Align, Axis, Box, Cylinder, Location, Part, Rotation, Vector
+from build123d import Align, Axis, Box, Compound, Cylinder, Location, Part, Rotation, Vector
 
 from cad import parameters as P
 from cad.part import CoguPart, InsertHole, insert_hole_cutter, rounded_box
@@ -227,21 +227,30 @@ def build_guard_bubble() -> CoguPart:
     z_base = P.COVER_TOP_Z
     keep = Box(400, 400, 400, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
     shell = shell & keep                                                   # sits on the hip cover deck
-    pieces: Part | None = None
+    # Kept as separate solids (a Compound), the way they will be printed. A boolean union of the
+    # pieces silently lost ~45 % of the volume here (near-tangent faces on the ellipsoid).
+    pieces: list[Part] = []
+    # One rib is cut at 30° (at the origin) and copied around: OCC returns an EMPTY intersection when the
+    # cutting slab lies along the ellipsoid's y axis (90° / 270°), which silently dropped two ribs.
+    shell0 = scale(Sphere(1.0), (rx, rx, rz)) - scale(Sphere(1.0), (rx - wall, rx - wall, rz - wall))
+    slab = Box(2 * rx + 20, g["rib_width"], 2 * rz + 20, align=(Align.MIN, Align.CENTER, Align.CENTER)).rotate(Axis.Z, 30)
+    rib_ref = shell0 & slab
     for az in g["rib_azimuths"]:                                           # meridian ribs
-        slab = Box(2 * rx + 20, g["rib_width"], 2 * rz + 20, align=(Align.MIN, Align.CENTER, Align.CENTER))
-        slab = slab.rotate(Axis.Z, az).moved(centre)
-        rib = shell & slab
-        pieces = rib if pieces is None else pieces + rib
+        rib = rib_ref.rotate(Axis.Z, az - 30).moved(centre) & keep
+        if rib.volume < 1.0:
+            raise RuntimeError(f"bubble rib at {az}° came out empty")
+        pieces.append(rib)
     for hz in g["hoop_z"]:                                                 # horizontal hoops
         band = Box(400, 400, g["hoop_height"], align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
             Location((0, 0, hz)))
-        pieces = pieces + (shell & band)
+        pieces.append(shell & band)
     base = Box(400, 400, g["base_ring"], align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, z_base)))
-    pieces = pieces + (shell & base)
+    pieces.append(shell & base)
     top_z = g["center_z"] + rz - 10.0                                     # small crown where the ribs meet
     crown = Box(400, 400, 20, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, 0, top_z)))
-    pieces = pieces + (shell & crown)
+    pieces.append(shell & crown)
+    solids = [so for pc in pieces for so in pc.solids()]
+    pieces = Part(Compound(children=solids).wrapped)
     n_pieces = 2 * len(g["rib_azimuths"]) + 2
     return CoguPart(
         name="phone_guard_bubble",
