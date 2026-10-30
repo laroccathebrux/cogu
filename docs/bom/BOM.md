@@ -8,7 +8,7 @@ ainda podem mudar com o desenho.
 | Servo Feetech STS3215 7,4 V | 10 (+2 de reserva) | 5 por perna; vem em kits de 4 → 3 kits | estável |
 | Waveshare Servo Driver with ESP32 | 1 | ESP32 + barramento ST/SC (2 portas, uma por perna) + OLED; entrada 6–12 V, plugue 5,5 × 2,1 mm | **comprado** |
 | IMU 6 eixos em placa I²C | 1 | ICM-42688-P ou BMI270 (MPU-6050 funciona, mais ruidosa) | estável |
-| Bateria LiPo 2S (7,4 V) | 1 | espaço atual no tambor: 16 × 70 × 34 mm | **em aberto** |
+| Bateria LiPo 2S (7,4 V) | 1 | em pé no tambor: largura ≤ 34 mm e, com 2 mm de folga, comprimento ≤ 78 / 77 / 73 / 71 / 69 mm para espessura 15 / 16 / 18 / 19 / 20 mm; 1000–2200 mAh, ≥ 20C | **em aberto** |
 | Carregador de balanceamento 2S | 1 | conector JST-XH | estável |
 | Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | do conector da bateria (T-Plug, XT30…) para a entrada da placa | depende da bateria |
 | Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | posição no CAD em aberto | em aberto |
