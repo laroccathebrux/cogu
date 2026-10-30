@@ -29,6 +29,69 @@ RAIL_INNER_Y = PH["width"] / 2 + P.CRADLE_CLEARANCE    # rail slot bottom (phone
 DRIVER_CABLE_HOLE = ((5.0, 16.0), -23.0)              # (x size, y size), x centre: through the cradle tongue and the deck
 
 
+def _sector(r0: float, r1: float, z0: float, z1: float, a0: float, a1: float) -> Part:
+    """Annular sector about the drum axis (pelvis frame): radii r0..r1, heights z0..z1, azimuths a0..a1 (deg)."""
+    import math
+
+    from build123d import Polygon, extrude
+
+    steps = max(2, int(abs(a1 - a0) / 3) + 1)
+    far = (r1 + 5.0) / math.cos(math.radians(abs(a1 - a0) / steps / 2 + 1))
+    pts = [(0.0, 0.0)] + [(far * math.cos(math.radians(a0 + (a1 - a0) * i / steps)),
+                           far * math.sin(math.radians(a0 + (a1 - a0) * i / steps))) for i in range(steps + 1)]
+    wedge = extrude(Polygon(*pts, align=None), amount=z1 - z0)
+    ring = Cylinder(r1, z1 - z0, align=(Align.CENTER, Align.CENTER, Align.MIN)) - \
+        Cylinder(r0, z1 - z0 + 2, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(Location((0, 0, (z1 - z0) / 2)))
+    return (ring & wedge).moved(Location((P.COVER_CENTER_X, 0, z0)))
+
+
+def _lock_azimuths() -> list[float]:
+    k = P.GUARD_LOCK
+    return [k["first_azimuth"] + i * 360.0 / k["lugs"] for i in range(k["lugs"])]
+
+
+def build_lock_lugs() -> Part:
+    """The drum's bayonet lugs (part of the hip cover), on its outer wall just under the rim."""
+    k, R = P.GUARD_LOCK, cover_radius()
+    lugs = None
+    for az in _lock_azimuths():
+        lug = _sector(R - 0.6, R + k["lug_depth"], k["lug_z"], k["lug_z"] + k["lug_height"],
+                      az - k["lug_arc_deg"] / 2, az + k["lug_arc_deg"] / 2)
+        lugs = lug if lugs is None else lugs + lug
+    return lugs
+
+
+def build_lock_skirt() -> Part:
+    """The bubble's skirt with the L-slots (locked position = the bubble's design azimuths)."""
+    k, R = P.GUARD_LOCK, cover_radius()
+    c, half = k["clearance"], k["lug_arc_deg"] / 2
+    r0, r1 = R + c, R + c + k["skirt_wall"]
+    skirt = (Cylinder(r1, P.COVER_TOP_Z - k["skirt_bottom_z"], align=(Align.CENTER, Align.CENTER, Align.MIN))
+             - Cylinder(r0, 100, align=(Align.CENTER, Align.CENTER, Align.CENTER))).moved(
+        Location((P.COVER_CENTER_X, 0, k["skirt_bottom_z"])))
+    # collar: a solid ring from inside the base ring's wall out to the skirt, on top of the rim (z 40 … 42.5);
+    # without it the skirt would only touch the ring along a 0.4 mm sliver
+    g, zc = P.GUARD_BUBBLE, P.COVER_TOP_Z + k["collar_height"]
+    u = (zc - g["center_z"]) / (g["radius_z"] - g["wall"])
+    r_in = (g["radius_xy"] - g["wall"]) * (1.0 - u * u) ** 0.5 + 0.2     # inside the wall all the way up
+    collar = (Cylinder(r1, k["collar_height"], align=(Align.CENTER, Align.CENTER, Align.MIN))
+              - Cylinder(r_in, 100, align=(Align.CENTER, Align.CENTER, Align.CENTER))).moved(
+        Location((P.COVER_CENTER_X, 0, P.COVER_TOP_Z)))
+    skirt = skirt + collar
+    run_z0, run_z1 = k["lug_z"] - c, k["lug_z"] + k["lug_height"] + c
+    pad = (c / R) * 57.3                                                  # clearance as an angle
+    cut = None
+    for az in _lock_azimuths():
+        entry = az - k["twist_deg"]                                       # where the lug sits before the twist
+        slot = _sector(r0 - 1, r1 + 1, k["skirt_bottom_z"] - 1, run_z1, entry - half - pad, entry + half + pad)
+        run = _sector(r0 - 1, r1 + 1, run_z0, run_z1, entry - half - pad, az + half + pad)
+        bump = _sector(r0 - 2, r1 + 2, run_z0 - 1, run_z0 + k["detent"],
+                       az - half - pad - k["detent_arc_deg"], az - half - pad)
+        c_az = slot + (run - bump)
+        cut = c_az if cut is None else cut + c_az
+    return skirt - cut
+
+
 def _cover_boss_positions() -> list[tuple[float, float]]:
     return [(bx, by) for bx in (P.PELVIS_BOSS_X, -P.PELVIS_BOSS_X) for by in (P.PELVIS_BOSS_Y, -P.PELVIS_BOSS_Y)]
 
@@ -115,6 +178,8 @@ def build_hip_cover() -> CoguPart:
     if sw:
         cutters = cutters + Cylinder(sw["d"] / 2, 10, rotation=(90, 0, 0)).moved(Location((sw["x"], width / 2, sw["z"])))
     solid = solid - cutters
+    if P.COVER_SHAPE == "round" and P.PHONE_GUARD == "bubble" and P.GUARD_LOCK:
+        solid = solid + build_lock_lugs()                              # bayonet lugs for the bubble's skirt
 
     masses = [
         ("battery_2s", P.BATTERY_2S["mass_g"], Vector(*P.BATTERY_POS)),
@@ -299,15 +364,24 @@ def build_guard_bubble() -> CoguPart:
     centre = Location((g["center_x"], 0.0, cz))
     lower, upper = lower.moved(centre), upper.moved(centre)
     flat = Rotation(0, 0, 0)
+    lower_rot = flat
+    if P.COVER_SHAPE == "round" and P.GUARD_LOCK:                   # twist-lock skirt over the drum's rim
+        skirt = build_lock_skirt()
+        joined = lower + skirt
+        lost = lower.volume + skirt.volume - (lower & skirt).volume - joined.volume
+        if len(joined.solids()) != 1 or abs(lost) > 0.01 * lower.volume:
+            raise RuntimeError(f"bubble: joining the lock skirt lost {lost:.0f} mm3")
+        lower = joined
+        lower_rot = Rotation(180, 0, 0)        # the skirt hangs below the base ring: print on the equator face
     return CoguPart(
         name="phone_guard_bubble",
         solid=Part(Compound(children=[lower, upper]).wrapped),
         material="PCTG",
         density_g_cm3=P.PCTG_DENSITY_G_CM3,
         print_rotation=flat,
-        print_pieces=[("lower", lower, flat), ("upper", upper, flat)],
-        print_notes="Two pieces split at the hoop. Lower bowl: base ring on the bed, no supports (walls lean out "
-                    "≤ 36°). Upper dome: cut face on the bed, tree supports only under the crown and the top "
+        print_pieces=[("lower", lower, lower_rot), ("upper", upper, flat)],
+        print_notes="Two pieces split at the hoop. Lower bowl: upside down, equator (cut) face on the bed, base "
+                    "ring and twist-lock skirt up, no supports (walls lean ≤ 36°; the slots bridge ~25 mm). Upper dome: cut face on the bed, tree supports only under the crown and the top "
                     "of the ribs (steeper than 45° above ~80 mm). 4 walls (the shell is 3 mm). The TPU hoop "
                     "tyre clamps the halves; a drop of CA glue on the joint is optional.",
         infill_factor=0.95,
@@ -353,22 +427,33 @@ def _zband(z0: float, z1: float) -> Part:
 
 def build_guard_tpu() -> CoguPart:
     """TPU 95A covers on the bubble's ground-contact parts, press-fitted ("tyres"):
-    a C-section on each hoop (outer sleeve + lips over its top and bottom edges), an outer sleeve with a top
-    lip on the base ring, and a cap over the crown. Kept as separate solids (one print each)."""
+    a C-section on each hoop (outer sleeve + lips over its top and bottom edges, notched where the ribs cross),
+    an outer sleeve with a top lip on the base ring (starting above the twist-lock collar), and a cap over the
+    crown. Kept as separate solids (one print each)."""
     g, c = P.GUARD_BUBBLE, P.GUARD_TPU
     tt, lip, wall = c["thickness"], c["lip"], g["wall"]
     sleeve_shell = _ellipsoid(tt) - _ellipsoid(0.0)              # outside the PETG/PCTG surface
     lip_shell = _ellipsoid(0.0) - _ellipsoid(-min(lip, wall))      # over the part's edges, inside its outline
+    # the lips run inside the PCTG outline, where the ribs cross them: notch them with the rib slabs (+0.2 mm a
+    # side). Plain boxes: subtracting the bubble itself (coincident ellipsoid faces) silently lost material.
+    notch = None
+    for az in g["rib_azimuths"]:
+        slab = Box(g["radius_xy"] + 20, g["rib_width"] + 0.4, 400, align=(Align.MIN, Align.CENTER, Align.CENTER)).rotate(
+            Axis.Z, az).moved(Location((g["center_x"], 0, g["center_z"])))
+        notch = slab if notch is None else notch + slab
     pieces: list[Part] = []
     names: list[str] = []
     for i, hz in enumerate(g["hoop_z"]):
         names.append(f"hoop_tyre{i + 1 if len(g['hoop_z']) > 1 else ''}")
         h = g["hoop_height"]
         tyre = (sleeve_shell & _zband(hz - h / 2 - tt, hz + h / 2 + tt)) \
-            + (lip_shell & _zband(hz + h / 2, hz + h / 2 + tt)) + (lip_shell & _zband(hz - h / 2 - tt, hz - h / 2))
+            + ((lip_shell & _zband(hz + h / 2, hz + h / 2 + tt)) - notch) \
+            + ((lip_shell & _zband(hz - h / 2 - tt, hz - h / 2)) - notch)
         pieces.append(tyre)
-    zb = P.COVER_TOP_Z
-    base = (sleeve_shell & _zband(zb, zb + g["base_ring"] + tt)) + (lip_shell & _zband(zb + g["base_ring"], zb + g["base_ring"] + tt))
+    lock = P.GUARD_LOCK if P.COVER_SHAPE == "round" else None
+    zb = P.COVER_TOP_Z + (lock["collar_height"] if lock else 0.0)   # above the twist-lock collar
+    zr = P.COVER_TOP_Z + g["base_ring"]
+    base = (sleeve_shell & _zband(zb, zr + tt)) + ((lip_shell & _zband(zr, zr + tt)) - notch)
     pieces.append(base)
     names.append("base_sleeve")
     top = g["center_z"] + g["radius_z"]

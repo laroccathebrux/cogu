@@ -259,6 +259,14 @@ GUARD_FRAME = dict(bar=5.0, depth_beyond_phone=8.0, top_clearance=12.0, side_cle
 GUARD_BUBBLE = dict(center_x=-2.0, center_z=110.0, radius_xy=75.0, radius_z=100.0, wall=3.0,
                     rib_width=6.0, rib_azimuths=(30.0, 90.0, 150.0, 210.0, 270.0, 330.0),
                     hoop_z=(110.0,), hoop_height=6.0, base_ring=6.0)
+# Bubble ↔ drum twist lock (bayonet, 2026-10-30): the bubble comes off every time the phone goes in or out, so
+# no tools. A short skirt hangs from the bubble's base ring over the outside of the drum; L-slots in it catch
+# lugs on the drum's wall. Lower the bubble with the slots over the lugs, turn it clockwise (seen from above)
+# by `twist_deg`: a detent bump on each slot's lower edge clicks over the lug and keeps it from turning back.
+# Angles are azimuths about the drum axis, 0 = forward (+X), counter-clockwise from above.
+GUARD_LOCK = dict(lugs=3, first_azimuth=0.0, lug_arc_deg=9.0, lug_height=3.0, lug_depth=1.5, lug_z=33.0,
+                  skirt_bottom_z=30.0, skirt_wall=2.0, clearance=0.3, twist_deg=15.0,
+                  detent=0.6, detent_arc_deg=2.0, collar_height=2.5)   # collar: solid ring joining skirt and base ring
 # TPU covers on the bubble's ground-contact parts (press-fit "tyres", printed in TPU 95A):
 # C-section on each hoop (lips over its top and bottom edges), outer sleeve + top lip on the base ring,
 # and a cap over the crown. None to leave them out.

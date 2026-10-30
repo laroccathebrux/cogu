@@ -186,7 +186,21 @@ Monte Carlo da forma analítica, porque as uniões do OCC já perderam material 
 cortada **no aro do meio em duas metades**: a de baixo tem 70 mm e sai sem suporte; a de cima tem 100 mm e só
 precisa de suporte sob a coroa. Cada uma cabe no limite de 160 mm. A capa de TPU do aro, com abas sobre a borda
 de cima e a de baixo, prende as metades. As capas de TPU também saem como STLs separados. A política v4 anda
-igual. Em aberto: prender a bolha ao tambor (hoje ela só se apoia na borda).
+igual.
+
+## Atualização 2026-10-30 (7) — bolha travada no tambor por baioneta
+
+A bolha sai toda vez que o celular entra ou sai, então a trava é **sem ferramenta**: 3 ressaltos na parede
+do tambor, logo abaixo da borda, e uma saia curta na bolha, por fora do tambor, com 3 fendas em L. Desce,
+gira 15° no sentido horário (visto de cima), e um calombo de detent na borda de baixo de cada fenda dá o
+clique. O calombo fica numa lingueta flexível de ~14 mm, e ele impede que a bolha desgire numa queda. Um
+colar sólido liga a saia ao anel da base. Parâmetros em `GUARD_LOCK`. Conferido no CAD: travada, nada se
+sobrepõe e ela não sobe nem 1 mm; na posição de entrada, sai livre; o detent interfere 0,3 mm no meio do
+giro. A metade de baixo passou a ser impressa de cabeça para baixo (equador na mesa), ainda sem suporte.
+
+As capas de TPU estavam atravessando as costelas (as abas ficam dentro do contorno da bolha): agora têm
+entalhes onde cada costela passa, e a capa da base começa acima do colar. Bolha 59 g, TPU 33 g, robô
+1,25 kg; a política v4 anda igual.
 
 ## Próximos passos
 
