@@ -83,8 +83,27 @@ def check_part(part: CoguPart) -> list[str]:
     return violations
 
 
+# Parts built in the pelvis frame and assembled at its origin: they must not overlap each other (they may touch).
+# Added 2026-10-30, when the battery cage's corners were found inside the pelvis' front screw bosses.
+PELVIS_FRAME_PARTS = ("pelvis", "hip_cover", "phone_cradle", "phone_guard_frame", "phone_guard_bubble", "phone_guard_tpu")
+OVERLAP_TOLERANCE_MM3 = 0.5
+
+
+def check_assembly_overlaps(parts: list[CoguPart]) -> list[str]:
+    framed = [p for p in parts if p.name in PELVIS_FRAME_PARTS]
+    out = []
+    for i, a in enumerate(framed):
+        for b in framed[i + 1:]:
+            common = a.solid & b.solid
+            v = 0.0 if common is None else sum(s.volume for s in common.solids())
+            if v > OVERLAP_TOLERANCE_MM3:
+                out.append(f"{a.name} and {b.name} overlap by {v:.1f} mm3 when assembled")
+    return out
+
+
 def check_all(parts: list[CoguPart]) -> list[str]:
     violations = []
     for p in parts:
         violations.extend(check_part(p))
+    violations.extend(check_assembly_overlaps(parts))
     return violations

@@ -164,7 +164,15 @@ def build_hip_cover() -> CoguPart:
         Location((cx, cy, floor_z - cw / 2)))
     lead = Box(4 * cw, 14, 10, align=(Align.CENTER, Align.CENTER, Align.MAX)).moved(
         Location((cx - bx / 2 - cw / 2, cy, DECK_UNDER_Z - 2)))
-    solid = solid + (cage_out - cage_in)
+    # the cage's rear corners reach down beside the two front screw tubes, where the pelvis bosses (Ø9.2, top at
+    # z 8.5) stand: clear them (0.4 mm), on the cage only, so the tubes still seat on the bosses
+    from cad.parts.hip import BOSS_R
+    boss_room = None
+    for px, py in _cover_boss_positions():
+        c = Cylinder(BOSS_R + 0.4, BOSS_TOP_Z + 0.4 + 1.0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+            Location((px, py, -1.0)))
+        boss_room = c if boss_room is None else boss_room + c
+    solid = solid + ((cage_out - cage_in) - boss_room)
     cutters = cutters + window + lead
 
     # servo leads from the driver board, through the cradle tongue

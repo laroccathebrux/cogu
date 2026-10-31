@@ -50,6 +50,7 @@ def cover_boss_positions() -> list[tuple[float, float]]:
 
 
 BOSS_TOP_Z = P.INSERT_M3.hole_depth + 2.0      # 8.5
+BOSS_R = P.INSERT_M3.hole_diameter / 2 + P.INSERT_M3.wall_min + 0.3   # 4.6 (Ø9.2)
 
 
 def build_pelvis() -> CoguPart:
@@ -60,8 +61,8 @@ def build_pelvis() -> CoguPart:
     # corners trimmed (they would only catch on things)
     plate = plate & Cylinder(P.PELVIS_CORNER_TRIM_R, 40, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
         Location((P.PELVIS_TRIM_X, 0, 0)))
-    boss_h = P.INSERT_M3.hole_depth + 2.0
-    boss_r = P.INSERT_M3.hole_diameter / 2 + P.INSERT_M3.wall_min + 0.3
+    boss_h = BOSS_TOP_Z
+    boss_r = BOSS_R
     inserts: list[InsertHole] = []
     solid: Part = plate
     cutters: Part | None = None
