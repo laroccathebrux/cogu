@@ -90,8 +90,12 @@ def default_config() -> config_dict.ConfigDict:
             feet_air_time_range=[0.15, 0.4],   # s; v0/v1: 0.1–0.35
             max_contact_time=0.5,     # s; at 1.5–2 Hz each foot should lift at least every ~0.6 s
             base_height_target=0.20,  # rest pelvis height is 0.205 m
+            still_speed=0.1,          # m/s: stand_still / feet_air_still only apply while the body is this slow.
+                                      # v5 charged them on any zero command and learned to never lift a foot,
+                                      # even when a push called for a recovery step
         ),
-        push_config=config_dict.create(enable=True, interval_range=[3.0, 6.0], magnitude_range=[0.05, 0.3]),
+        # v6: pushes up to 0.6 m/s (v5: 0.3) — beyond 0.3 v5 never learned a recovery step
+        push_config=config_dict.create(enable=True, interval_range=[3.0, 6.0], magnitude_range=[0.1, 0.6]),
         gait_freq_range=[1.5, 2.0],   # Hz
         stand_phase_reset=True,       # zero command: the gait phase holds its start value (both feet down);
                                       # checkpoints up to v4 kept it running (config_for_checkpoint)
@@ -369,6 +373,10 @@ class CoguJoystick(mjx_env.MjxEnv):
     def _get_reward(self, data, action, info, done, first_contact, contact) -> dict[str, jax.Array]:
         cmd = info["command"]
         qpos = data.qpos[7:]
+        # standing undisturbed: a zero command AND a slow body (a pushed robot may step to recover)
+        still = (jp.linalg.norm(cmd) < 0.05) & \
+            (jp.linalg.norm(self.get_local_linvel(data)[:2]) < self._config.reward_config.still_speed)
+        still = still.astype(jp.float32)          # a raw bool in the reward slows the XLA-CPU step (see termination)
         return {
             "tracking_lin_vel": self._reward_tracking_lin_vel(cmd, self.get_local_linvel(data)),
             "tracking_ang_vel": self._reward_tracking_ang_vel(cmd, self.get_gyro(data)),
@@ -386,8 +394,8 @@ class CoguJoystick(mjx_env.MjxEnv):
             "feet_planted": self._cost_feet_planted(info["feet_contact_time"], cmd),
             # cast: a raw bool here makes XLA-CPU compile a ~3x slower step (measured)
             "termination": done.astype(jp.float32),
-            "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * (jp.linalg.norm(cmd) < 0.05),
-            "feet_air_still": jp.sum(~contact).astype(jp.float32) * (jp.linalg.norm(cmd) < 0.05),
+            "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * still,
+            "feet_air_still": jp.sum(~contact).astype(jp.float32) * still,
             "dof_pos_limits": self._cost_joint_pos_limits(qpos),
             "pose": jp.sum(jp.square(qpos - self._default_pose) * self._pose_weights),
         }

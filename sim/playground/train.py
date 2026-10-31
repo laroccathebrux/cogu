@@ -44,6 +44,7 @@ from brax.training.agents.ppo import train as ppo  # noqa: E402
 from mujoco_playground import wrapper  # noqa: E402
 
 import cogu_env  # noqa: E402
+import cogu_getup  # noqa: E402
 from randomize import make_domain_randomizer  # noqa: E402
 
 REPO_ROOT = HERE.parents[1]
@@ -65,7 +66,9 @@ def parse_args(argv=None):
     ap.add_argument("--num-envs", type=int, default=1024)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=str(REPO_ROOT / "build" / "checkpoints" / "cogu_walk"))
-    ap.add_argument("--xml", default=str(cogu_env.DEFAULT_XML))
+    ap.add_argument("--env", choices=["walk", "getup"], default="walk",
+                    help="walk: velocity tracking (cogu_env); getup: stand up from a fall (cogu_getup)")
+    ap.add_argument("--xml", default=None, help="default: the MJX model of the chosen env")
     ap.add_argument("--num-evals", type=int, default=4)
     ap.add_argument("--episode-length", type=int, default=500)
     ap.add_argument("--unroll-length", type=int, default=20)
@@ -93,11 +96,20 @@ def main(argv=None) -> int:
     assert args.num_envs % args.devices == 0, "num_envs must be a multiple of --devices"
 
     print(f"jax backend: {jax.default_backend()} devices: {jax.devices()}")
-    env_cfg = cogu_env.default_config()
-    env_cfg.episode_length = args.episode_length
-    env = cogu_env.CoguJoystick(xml_path=args.xml, config=env_cfg)
-    cogu_env.save_config(env_cfg, out)       # play.py / rollout.py rebuild the same dynamics from it
-    eval_env = cogu_env.CoguJoystick(xml_path=args.xml, config=env_cfg)
+    if args.env == "getup":
+        env_cfg = cogu_getup.default_config()
+        env_cfg.episode_length = args.episode_length
+        xml = args.xml or str(cogu_getup.GETUP_XML)
+        env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
+        cogu_getup.save_config(env_cfg, out)
+        eval_env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
+    else:
+        env_cfg = cogu_env.default_config()
+        env_cfg.episode_length = args.episode_length
+        xml = args.xml or str(cogu_env.DEFAULT_XML)
+        env = cogu_env.CoguJoystick(xml_path=xml, config=env_cfg)
+        cogu_env.save_config(env_cfg, out)       # play.py / rollout.py rebuild the same dynamics from it
+        eval_env = cogu_env.CoguJoystick(xml_path=xml, config=env_cfg)
     print(f"env: obs {env.observation_size} act {env.action_size} xml {env.xml_path}")
 
     randomizer = None if args.no_domain_randomization else make_domain_randomizer(env.mj_model)
@@ -113,10 +125,15 @@ def main(argv=None) -> int:
             f.write(json.dumps(rec) + "\n")
         reward = metrics.get("eval/episode_reward", float("nan"))
         length = metrics.get("eval/avg_episode_length", float("nan"))
-        # brax sums per-step metrics over the episode: divide by the length for a mean speed
-        speed = metrics.get("eval/episode_forward_speed", float("nan")) / max(length, 1.0)
+        # brax sums per-step metrics over the episode: divide by the length for a mean
+        if args.env == "getup":
+            upright = metrics.get("eval/episode_upright", float("nan")) / max(length, 1.0)
+            tail = f"upright {100 * upright:5.1f} % of the time"
+        else:
+            speed = metrics.get("eval/episode_forward_speed", float("nan")) / max(length, 1.0)
+            tail = f"mean fwd speed {speed:+.3f} m/s"
         print(f"[{rec['wall_s']:7.1f}s] step {num_steps:>10,d}  eval reward {reward:8.3f}  "
-              f"ep len {length:6.1f}  mean fwd speed {speed:+.3f} m/s", flush=True)
+              f"ep len {length:6.1f}  {tail}", flush=True)
 
     train_fn = functools.partial(
         ppo.train,

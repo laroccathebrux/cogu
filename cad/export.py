@@ -116,7 +116,13 @@ GEOM_CLASS = {"hip_cover": "shell", "phone_cradle": "shell", "phone_guard_frame"
               "phone_guard_tpu": "guard_tpu"}
 
 
-def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool) -> ET.Element:
+# Get-up variant (mjx=True, getup=True): which printed parts get a box of their own (their bounding box in the
+# body frame). The bubble and the drum get primitives (an ellipsoid, a cylinder) built from the parameters.
+GETUP_BOX_PARTS = ("hip_yaw_link", "hip_roll_link", "thigh", "shin")
+
+
+def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], str], mjx: bool,
+               getup: bool = False) -> ET.Element:
     """MJCF tree for the robot (pelvis, legs, hip cover, phone cradle and phone).
 
     mjx=False: every printed part is a collision mesh (faithful contacts, for `check_mjcf.py`
@@ -126,6 +132,10 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                is one box per foot sole (sole-floor and sole-sole contacts, nothing else), plus the
                solver settings MJX likes. Both variants carry the same IMU / foot sites, sensors and
                cameras (`track` follows the robot, `phone_cam` is the phone's rear camera).
+    getup=True (with mjx): the get-up training variant. Lying on the floor the robot touches it with the
+               bubble, the drum and the legs, so those get collision primitives too: an ellipsoid over the
+               bubble (with its TPU), a cylinder for the drum, a box per leg link. They collide with the floor
+               only (bit 2), never with each other or the feet.
     """
     root = ET.Element("mujoco", model="cogu" + ("_mjx" if mjx else ""))
     ET.SubElement(root, "compiler", angle="degree", meshdir="meshes", autolimits="true")
@@ -146,6 +156,10 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
         coll = ET.SubElement(default, "default", **{"class": "collision"})
         ET.SubElement(coll, "geom", type="box", contype="1", conaffinity="1", group="3", condim="3",
                       friction="0.9 0.005 0.0001", rgba="0.3 0.3 0.8 0.4")
+        if getup:   # body parts on the floor: bit 2, so they meet the floor and nothing else
+            body_coll = ET.SubElement(default, "default", **{"class": "body_collision"})
+            ET.SubElement(body_coll, "geom", contype="0", conaffinity="2", group="3", condim="3",
+                          friction="0.7 0.005 0.0001", rgba="0.8 0.3 0.3 0.3")
     else:
         ET.SubElement(default, "geom", type="mesh", contype="1", conaffinity="1", friction="0.9 0.005 0.0001",
                       rgba=P.PALETTE["printed"], group="0")
@@ -176,7 +190,7 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
     ET.SubElement(world, "light", pos="0.3 0 1.2", dir="-0.3 0 -1", diffuse="0.9 0.9 0.9")
     if mjx:
         ET.SubElement(world, "geom", name="floor", type="plane", size="0 0 0.05", material="grid",
-                      contype="1", conaffinity="0", priority="1", friction="0.8", condim="3")
+                      contype="3" if getup else "1", conaffinity="0", priority="1", friction="0.8", condim="3")
     else:
         ET.SubElement(world, "geom", name="floor", type="plane", size="2 2 0.05", material="grid",
                       contype="1", conaffinity="3")
@@ -202,6 +216,17 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                           xyaxes="1 0 0 0 0.25 1")
             ET.SubElement(el, "light", name="track_light", mode="trackcom", pos="0.2 -0.3 1.0", dir="-0.2 0.3 -1",
                           diffuse="0.7 0.7 0.7")
+            if getup:
+                g = P.GUARD_BUBBLE
+                tpu = P.GUARD_TPU["thickness"] if P.GUARD_TPU else 0.0
+                if P.PHONE_GUARD == "bubble":
+                    ET.SubElement(el, "geom", name="bubble_hull", type="ellipsoid",
+                                  size=_fmt([(g["radius_xy"] + tpu) * MM] * 2 + [(g["radius_z"] + tpu) * MM]),
+                                  pos=_fmt([g["center_x"] * MM, 0.0, g["center_z"] * MM]), **{"class": "body_collision"})
+                ET.SubElement(el, "geom", name="drum_hull", type="cylinder",
+                              size=_fmt([phone_mount.cover_radius() * MM, P.COVER_TOP_Z / 2 * MM]),
+                              pos=_fmt([P.COVER_CENTER_X * MM, 0.0, P.COVER_TOP_Z / 2 * MM]),
+                              **{"class": "body_collision"})
         elif body.joint:
             ET.SubElement(el, "joint", name=body.joint, type="hinge", axis=_fmt(body.joint_axis),
                           range=_fmt(body.joint_range_deg))
@@ -229,6 +254,18 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
                 touch = "2" if (ref.collide and not mjx) else "0"     # the phone hits the floor in falls
                 ET.SubElement(el, "geom", name=f"ref_{ref.name}", mesh=mesh_names[(f"ref:{ref.name}", False)],
                               contype=touch, conaffinity=touch, group="0" if touch != "0" else "2", rgba=ref.rgba)
+        if getup:
+            for part, loc, mirror, rot_z in instances:
+                if part.name not in GETUP_BOX_PARTS:
+                    continue
+                solid = assembly.mirrored(part.solid) if mirror else part.solid
+                solid = (solid.rotate(Axis.Z, rot_z) if rot_z else solid).moved(loc)
+                bb = solid.bounding_box()
+                ET.SubElement(el, "geom", name=f"{body.name}_{part.name}_box", type="box",
+                              pos=_fmt([(bb.min.X + bb.max.X) / 2 * MM, (bb.min.Y + bb.max.Y) / 2 * MM,
+                                        (bb.min.Z + bb.max.Z) / 2 * MM]),
+                              size=_fmt([bb.size.X / 2 * MM, bb.size.Y / 2 * MM, bb.size.Z / 2 * MM]),
+                              **{"class": "body_collision"})
         mass, com, inertia = body_inertial(instances)
         ET.SubElement(el, "inertial", pos=_fmt(com), mass=f"{mass:.5f}",
                       fullinertia=_fmt([inertia[0, 0], inertia[1, 1], inertia[2, 2],
@@ -279,13 +316,14 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
 
 
 def write_mjcf(parts: dict[str, CoguPart], out_dir: Path) -> list[Path]:
-    """Write `cogu_lower_body.xml` (full collision meshes) and `cogu_lower_body_mjx.xml`
-    (training variant) sharing one `meshes/` folder. The file names are historical
+    """Write `cogu_lower_body.xml` (full collision meshes), `cogu_lower_body_mjx.xml` (walking training
+    variant) and `cogu_lower_body_mjx_getup.xml` (get-up training variant) sharing one `meshes/` folder. The file names are historical
     (sim/playground reads them); both contain the complete robot with the phone."""
     mesh_names = export_meshes(parts, out_dir / "meshes")
     written = []
-    for mjx, fname in ((False, "cogu_lower_body.xml"), (True, "cogu_lower_body_mjx.xml")):
-        xml = minidom.parseString(ET.tostring(build_mjcf(parts, mesh_names, mjx))).toprettyxml(indent="  ")
+    for mjx, getup, fname in ((False, False, "cogu_lower_body.xml"), (True, False, "cogu_lower_body_mjx.xml"),
+                              (True, True, "cogu_lower_body_mjx_getup.xml")):
+        xml = minidom.parseString(ET.tostring(build_mjcf(parts, mesh_names, mjx, getup))).toprettyxml(indent="  ")
         path = out_dir / fname
         path.write_text(xml)
         written.append(path)

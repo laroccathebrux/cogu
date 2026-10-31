@@ -47,6 +47,7 @@ import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 
 import cogu_env  # noqa: E402
+import cogu_getup  # noqa: E402
 from rollout import latest_checkpoint, load_policy  # noqa: E402
 
 REPO_ROOT = HERE.parents[1]
@@ -145,6 +146,77 @@ class Sim2Sim:
         return float(np.dot(self.d.qvel[:3], heading))
 
 
+    def handover(self):
+        """Take over a robot that is already standing (from the get-up policy): keep the physics, restart the
+        policy state so the first target is where the joints are now (no jump)."""
+        q = self.d.qpos[7:].copy()
+        self.last_act = np.zeros(self.m.nu)
+        self.filtered = (q - self.default_pose) / self.cfg.action_scale
+        self.phase = np.array([0.0, np.pi])
+        self.history = [q.copy() for _ in range(self.delay + 1)]
+        self.obs = self._obs()
+
+
+def getup_config(ckpt: Path):
+    cfg = cogu_getup.default_config()
+    for d in (ckpt, ckpt.parent):
+        f = d / cogu_env.ENV_CONFIG_FILE
+        if f.exists():
+            import json
+            cfg.update(json.loads(f.read_text()))
+            break
+    return cfg
+
+
+class GetupPolicy:
+    """The get-up policy (cogu_getup) driving the same MjData as a Sim2Sim walker: sim2sim of CoguGetup."""
+
+    def __init__(self, sim: Sim2Sim, ckpt: Path, seed: int = 1):
+        self.sim, self.ckpt = sim, ckpt
+        self.cfg = getup_config(ckpt)
+        self.policy = jax.jit(load_policy(ckpt))
+        self.key = jax.random.PRNGKey(seed)
+        self.centre = (sim.lowers + sim.uppers) / 2
+        self.half = (sim.uppers - sim.lowers) / 2
+        self.priv = jp.zeros(53)
+        self.calm = 0.0
+
+    def start(self):
+        q = self.sim.d.qpos[7:].copy()
+        self.filtered = np.clip((q - self.centre) / self.half, -1.0, 1.0)
+        self.last_act = np.zeros(self.sim.m.nu)
+        self.history = [q.copy() for _ in range(self.sim.delay + 1)]
+        self.calm = 0.0
+
+    def _obs(self) -> np.ndarray:
+        s, d = self.sim, self.sim.d
+        gyro = d.sensordata[s.gyro_adr:s.gyro_adr + 3].copy()
+        gravity = d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
+        return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act]).astype(np.float32)
+
+    def step(self):
+        s = self.sim
+        self.key, k = jax.random.split(self.key)
+        action, _ = self.policy({"state": jp.asarray(self._obs()), "privileged_state": self.priv}, k)
+        action = np.asarray(action)
+        a = self.cfg.action_filter_alpha
+        self.filtered = a * action + (1.0 - a) * self.filtered
+        target = np.clip(self.centre + self.filtered * self.half, s.lowers, s.uppers)
+        self.history = [target] + self.history[:-1]
+        s.d.ctrl[:] = self.history[s.delay]
+        for _ in range(s.n_substeps):
+            mujoco.mj_step(s.m, s.d)
+        self.last_act = action
+        # ready to walk: upright, at height, near `rest`, slow — for 0.5 s in a row
+        up = s.d.site_xmat[s.imu].reshape(3, 3)[2, 2]
+        rested = np.sum(np.square(s.d.qpos[7:] - s.default_pose)) < 0.05
+        slow = np.linalg.norm(s.d.qvel[:3]) < 0.1 and np.linalg.norm(s.d.qvel[6:]) < 1.5
+        self.calm = self.calm + s.dt if (up > 0.95 and s.d.qpos[2] > 0.18 and rested and slow) else 0.0
+
+    def ready(self) -> bool:
+        return self.calm >= 0.5
+
+
 def run_checkpoints(ckpt: Path) -> list[Path]:
     """All step checkpoints of the training run `ckpt` belongs to (empty for a published folder)."""
     if not ckpt.name.isdigit():
@@ -174,7 +246,7 @@ def run_headless(sim: Sim2Sim, seconds: float) -> int:
     return 0
 
 
-def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
+def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: GetupPolicy | None = None) -> int:
     import mujoco.viewer
 
     lims = sim.cfg
@@ -220,6 +292,7 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
         v.cam.trackbodyid = sim.m.body("pelvis").id
         v.cam.distance, v.cam.azimuth, v.cam.elevation = 1.0, 135.0, -15.0
         falls = 0
+        mode = "walking"
         last_poll = time.perf_counter()
         last_newest = sim.ckpt                       # follow only jumps when a NEW checkpoint appears
         while v.is_running():
@@ -252,19 +325,30 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
             with v.lock():
                 if pending["reset"]:
                     sim.reset()
+                    mode = "walking"
                     pending["reset"] = False
                 # mouse pushes: the passive viewer only records them; the physics loop applies them
                 sim.d.xfrc_applied[:] = 0.0
                 mujoco.mjv_applyPerturbForce(sim.m, sim.d, v.perturb)
-                sim.step()
-                if sim.fallen():
-                    falls += 1
-                    sim.reset()
+                if mode == "getting up":
+                    getup.step()
+                    if getup.ready():                   # standing in `rest`: the walker takes over
+                        sim.handover()
+                        mode = "walking"
+                else:
+                    sim.step()
+                    if sim.fallen():
+                        falls += 1
+                        if getup is not None:           # lying on the floor: the get-up policy takes over
+                            getup.start()
+                            mode = "getting up"
+                        else:
+                            sim.reset()
             vx, vy, wz = sim.command
             v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT,
-                         "command\nspeed\nfalls\npolicy",
+                         "command\nspeed\nfalls\npolicy\nmode",
                          f"vx {vx:+.2f}  vy {vy:+.2f}  wz {wz:+.1f}\n{sim.forward_speed():+.2f} m/s\n{falls}\n"
-                         f"{checkpoint_label(sim.ckpt)}"))
+                         f"{checkpoint_label(sim.ckpt)}\n{mode}"))
             v.sync()
             sleep = sim.dt / speed - (time.perf_counter() - t0)
             if sleep > 0:
@@ -276,8 +360,11 @@ def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--checkpoint", default=None,
                     help="checkpoint dir (default: newest of build/checkpoints/cogu_walk_v2, sim/playground/checkpoints)")
-    ap.add_argument("--xml", default=str(cogu_env.DEFAULT_XML),
-                    help="MJCF (default: the MJX training variant; try build/mjcf/cogu_lower_body.xml for full contacts)")
+    ap.add_argument("--xml", default=None,
+                    help="MJCF (default: the MJX walking model, or the get-up one with --getup; "
+                         "try build/mjcf/cogu_lower_body.xml for full mesh contacts)")
+    ap.add_argument("--getup", default=None, metavar="CKPT",
+                    help="get-up policy: after a fall it takes over, then hands back to the walker")
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--seconds", type=float, default=8.0)
     ap.add_argument("--vx", type=float, default=0.0)
@@ -315,12 +402,14 @@ def main(argv=None) -> int:
             ckpt = latest_checkpoint(follow)
     else:
         ckpt = latest_checkpoint(Path(args.checkpoint).resolve() if args.checkpoint else default_checkpoint())
-    print(f"checkpoint: {ckpt}\nmodel:      {args.xml}")
-    sim = Sim2Sim(Path(args.xml), ckpt, gait_freq=args.gait_freq, delay_steps=args.delay, noise=args.noise)
+    xml = args.xml or str(cogu_getup.GETUP_XML if args.getup else cogu_env.DEFAULT_XML)
+    print(f"checkpoint: {ckpt}\nmodel:      {xml}")
+    sim = Sim2Sim(Path(xml), ckpt, gait_freq=args.gait_freq, delay_steps=args.delay, noise=args.noise)
     sim.command[:] = (args.vx, args.vy, args.wz)
+    getup = GetupPolicy(sim, latest_checkpoint(Path(args.getup).resolve())) if args.getup else None
     if args.headless:
         return run_headless(sim, args.seconds)
-    return run_viewer(sim, args.speed, follow)
+    return run_viewer(sim, args.speed, follow, getup)
 
 
 if __name__ == "__main__":
