@@ -113,7 +113,9 @@ def build_hip_cover() -> CoguPart:
         R = cover_radius()
         outer = Cylinder(R, P.COVER_TOP_Z, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
             Location((P.COVER_CENTER_X, 0, 0)))
-        outer = outer.fillet(2.0, outer.edges().group_by(Axis.Z)[-1])
+        # 45° chamfer, not a fillet: the drum prints deck-down, and a rounded edge on the bed is an overhang no
+        # support can reach (Bambu Studio flagged it). The bubble's lock skirt hides this edge anyway.
+        outer = outer.chamfer(1.0, None, outer.edges().group_by(Axis.Z)[-1])
         inner = Cylinder(R - w, DECK_UNDER_Z + 1.0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
             Location((P.COVER_CENTER_X, 0, -1.0)))
     else:
