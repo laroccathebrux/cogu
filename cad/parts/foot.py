@@ -65,9 +65,11 @@ def build_foot() -> CoguPart:
     x_front = P.FOOT_LENGTH - P.ANKLE_X_FROM_HEEL - 16
     x_back = -P.ANKLE_X_FROM_HEEL + 10
     cutters = cutters + _oring_groove(x_front) + _oring_groove(x_back)
-    # contact-switch pockets (6×6 tactile), from the top of the sole, with a Ø2.5 plunger hole
+    # contact-switch pockets (6×6 tactile), from the top of the sole, with a Ø2.5 plunger hole, in the middle of
+    # each O-ring loop: 1.2 mm of sole between the pocket and the groove. (Until 2026-10-30 the back switch sat on
+    # the back groove, so the O-ring would have rested on its plunger, and the front pocket broke out of the toe.)
     sw_l, sw_w, sw_h = P.FOOT_SWITCH_SIZE
-    for x in (x_front + 14, x_back - 8):
+    for x in (x_front, x_back):
         pocket = Box(sw_l + 0.4, sw_w + 0.4, sw_h, align=(Align.CENTER, Align.CENTER, Align.MAX))
         pocket = pocket.moved(Location((x, LATERAL_CENTRE, sole_top + 0.01)))
         plunger = Cylinder(1.25, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
