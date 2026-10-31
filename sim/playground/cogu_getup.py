@@ -5,8 +5,8 @@ orientation and joint pose, then settled on its bubble and legs) and is rewarded
 standing height, and then into the `rest` pose the walking policy starts from. On the robot, the IMU tells
 which one runs: fallen -> get-up; upright and still in `rest` -> walking.
 
-Modelled on MuJoCo Playground's Go1 get-up env. Differences: the action maps to each joint's whole range
-(getting up needs big excursions), with the same low-pass filter and actuator latency as the walking env;
+Modelled on MuJoCo Playground's Go1 get-up env. Differences: the action is an offset from the `rest` pose of up to ±1 rad (getting up needs big excursions; zero action
+stands), with the same low-pass filter and actuator latency as the walking env;
 the model is the get-up MJX variant (`cogu_lower_body_mjx_getup.xml`), where the bubble, the drum and the
 leg links touch the floor.
 
@@ -23,6 +23,7 @@ import jax
 import jax.numpy as jp
 from ml_collections import config_dict
 from mujoco import mjx
+from mujoco.mjx._src import math as mjx_math
 from mujoco_playground._src import mjx_env
 
 import cogu_env
@@ -38,10 +39,18 @@ def default_config() -> config_dict.ConfigDict:
         episode_length=500,            # 10 s
         action_repeat=1,
         action_filter_alpha=0.4,
+        # target = rest pose + action × action_scale (rad), clipped to the joint range: zero action stands. The
+        # first version mapped the action to each joint's whole range (zero = mid-range, a crouch); with the early
+        # policy's exploration noise even the episodes that started standing fell (0.7 % upright after 3 M steps)
+        action_scale=1.0,
         max_action_delay_steps=2,
         soft_joint_pos_limit_factor=0.95,
-        drop_prob=0.6,                 # else the episode starts standing in `rest` (learn to stay up). 0.8 locally:
-                                       # 3 M steps, never stood up; Go1 get-up (Playground) uses 0.6
+        # how episodes start (a curriculum by mixture): standing in `rest`; in `rest` but tilted (released mid-fall:
+        # learn to catch it and come back); dropped from a random orientation and joint pose and settled (lying).
+        # Only "standing" and "dropped" at first: the policy learned to thrash on the floor and did the same when
+        # it started standing (1 % upright after 1.5 M steps locally)
+        start_mix=(0.3, 0.3, 0.4),     # standing, tilted, dropped
+        tilt_range=(0.17, 1.22),       # rad (10°-70°) about a random horizontal axis
         drop_height=0.35,              # m, pelvis
         settle_time=1.0,               # s of physics after the drop, holding the random joint pose
         noise_config=config_dict.create(
@@ -53,7 +62,9 @@ def default_config() -> config_dict.ConfigDict:
                 orientation=1.0,       # ((1 + up_z) / 2)²: dense from upside down to upright
                 torso_height=1.0,      # pelvis height / target, capped at 1
                 posture=1.0,           # once up: close to `rest` (where the walking policy takes over)
-                stand_still=-0.5,      # once up: action changes
+                stand_still=-0.02,     # once up: squared action changes. Was -0.5 on |changes|: with the early,
+                                       # noisy policy that cost ~5 per step, more than standing earned (~3), so
+                                       # lying down paid better and even the standing starts fell (Colab, 11 M)
                 action_rate=-0.01,
                 torques=-0.002,
                 dof_pos_limits=-1.0,
@@ -87,8 +98,6 @@ class CoguGetup(cogu_env.CoguJoystick):
 
     def __init__(self, xml_path: Union[str, Path] = GETUP_XML, config: config_dict.ConfigDict = default_config()):
         super().__init__(xml_path=xml_path, config=config)
-        self._centre = jp.array((self._lowers + self._uppers) / 2)
-        self._half_range = jp.array((self._uppers - self._lowers) / 2)
         self._settle_steps = int(round(self._config.settle_time / self.sim_dt))
 
     # ----------------------------------------------------------------- reset
@@ -100,23 +109,33 @@ class CoguGetup(cogu_env.CoguJoystick):
         xy = jax.random.uniform(k_xy, (2,), minval=-0.3, maxval=0.3)
         return jp.concatenate([xy, jp.array([self._config.drop_height]), quat, q])
 
+    def _tilted_qpos(self, rng: jax.Array) -> jax.Array:
+        k_axis, k_angle = jax.random.split(rng)
+        heading = jax.random.uniform(k_axis, minval=-jp.pi, maxval=jp.pi)
+        axis = jp.array([jp.cos(heading), jp.sin(heading), 0.0])
+        lo, hi = self._config.tilt_range
+        quat = mjx_math.axis_angle_to_quat(axis, jax.random.uniform(k_angle, minval=lo, maxval=hi))
+        return self._init_q.at[3:7].set(mjx_math.quat_mul(quat, self._init_q[3:7]))
+
     def reset(self, rng: jax.Array) -> mjx_env.State:
-        rng, k_drop, k_q, k_delay = jax.random.split(rng, 4)
-        dropped = jax.random.bernoulli(k_drop, self._config.drop_prob)
-        qpos = jp.where(dropped, self._random_fallen_qpos(k_q), self._init_q)
+        rng, k_start, k_q, k_tilt, k_delay = jax.random.split(rng, 5)
+        start_kind = jax.random.choice(k_start, 3, p=jp.array(self._config.start_mix))   # 0 stand, 1 tilt, 2 drop
+        qpos = jp.select([start_kind == 0, start_kind == 1],
+                         [self._init_q, self._tilted_qpos(k_tilt)], self._random_fallen_qpos(k_q))
         data = mjx_env.make_data(self.mj_model, qpos=qpos, qvel=jp.zeros(self.mjx_model.nv), ctrl=qpos[7:],
                                  impl=self.mjx_model.impl.value, naconmax=self._config.naconmax,
                                  njmax=self._config.njmax)
         data = mjx.forward(self.mjx_model, data)
-        data = mjx_env.step(self.mjx_model, data, qpos[7:], self._settle_steps)   # fall and come to rest
-        data = data.replace(qvel=jp.zeros(self.mjx_model.nv))
+        settled = mjx_env.step(self.mjx_model, data, qpos[7:], self._settle_steps)   # fall and come to rest
+        settled = settled.replace(qvel=jp.zeros(self.mjx_model.nv))
+        data = jax.tree_util.tree_map(lambda a, b: jp.where(start_kind == 2, a, b), settled, data)
 
         n_delay = self._config.max_action_delay_steps
         start = data.qpos[7:]
         info = {
             "rng": rng,
             "last_act": jp.zeros(self._nu),
-            "action_filtered": jp.clip((start - self._centre) / self._half_range, -1.0, 1.0),
+            "action_filtered": jp.clip((start - self._default_pose) / self._config.action_scale, -1.0, 1.0),
             "ctrl_history": jp.tile(start, (n_delay + 1, 1)),
             "action_delay": jax.random.randint(k_delay, (), 0, n_delay + 1),
         }
@@ -132,7 +151,7 @@ class CoguGetup(cogu_env.CoguJoystick):
         a = cfg.action_filter_alpha
         filtered = a * action + (1.0 - a) * state.info["action_filtered"]
         state.info["action_filtered"] = filtered
-        targets = jp.clip(self._centre + filtered * self._half_range, self._lowers, self._uppers)
+        targets = jp.clip(self._default_pose + filtered * cfg.action_scale, self._lowers, self._uppers)
         hist = jp.roll(state.info["ctrl_history"], 1, axis=0).at[0].set(targets)
         data = mjx_env.step(self.mjx_model, state.data, hist[state.info["action_delay"]], self.n_substeps)
         state.info["ctrl_history"] = hist
@@ -182,7 +201,7 @@ class CoguGetup(cogu_env.CoguJoystick):
             "orientation": jp.square((1.0 + up) / 2.0),
             "torso_height": jp.clip(height / rc.height_target, 0.0, 1.0),
             "posture": jp.exp(-jp.sum(jp.square(q - self._default_pose)) / rc.posture_sigma) * upright,
-            "stand_still": jp.sum(jp.abs(action - info["last_act"])) * upright,
+            "stand_still": jp.sum(jp.square(action - info["last_act"])) * upright,
             "action_rate": jp.sum(jp.square(action - info["last_act"])),
             "torques": jp.sum(jp.abs(data.actuator_force)),
             "dof_pos_limits": self._cost_joint_pos_limits(q),

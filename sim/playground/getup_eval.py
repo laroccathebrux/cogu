@@ -46,7 +46,7 @@ def main(argv=None) -> int:
         mujoco.mj_resetData(sim.m, sim.d)
         quat = rng.normal(size=4)
         q = rng.uniform(sim.lowers, sim.uppers)
-        sim.d.qpos[:] = np.concatenate([[0.0, 0.0, cfg.drop_height], quat / np.linalg.norm(quat), q])
+        sim.d.qpos[:] = np.concatenate([[0.0, 0.0, 0.35], quat / np.linalg.norm(quat), q])
         sim.d.ctrl[:] = q
         for _ in range(int(cfg.settle_time / sim.m.opt.timestep)):
             mujoco.mj_step(sim.m, sim.d)

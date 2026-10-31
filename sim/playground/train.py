@@ -50,13 +50,22 @@ from randomize import make_domain_randomizer  # noqa: E402
 REPO_ROOT = HERE.parents[1]
 
 
-def network_factory(policy_hidden=(128, 128, 128), value_hidden=(256, 256, 256)):
+def network_factory(policy_hidden=(128, 128, 128), value_hidden=(256, 256, 256), env: str = "walk"):
+    extra = {}
+    if env == "getup":
+        # start from "stand still": the policy's mean output starts ~0 (zero action = the rest pose) and the
+        # exploration noise small. With brax's defaults (noise std 1 on a ±1 rad action) the noise alone knocked
+        # over every robot that started standing, so the policy never learned what standing pays.
+        from brax.training import networks as brax_networks
+        extra = dict(init_noise_std=0.3, mean_kernel_init_fn=brax_networks.KERNEL_INITIALIZER["uniform"],
+                     mean_kernel_init_kwargs={"scale": 0.01})
     return functools.partial(
         ppo_networks.make_ppo_networks,
         policy_hidden_layer_sizes=tuple(policy_hidden),
         value_hidden_layer_sizes=tuple(value_hidden),
         policy_obs_key="state",
         value_obs_key="privileged_state",
+        **extra,
     )
 
 
@@ -155,10 +164,13 @@ def main(argv=None) -> int:
         max_grad_norm=1.0,
         num_resets_per_eval=1,
         seed=args.seed,
-        network_factory=network_factory(),
+        network_factory=network_factory(env=args.env),
         randomization_fn=randomizer,
         wrap_env_fn=wrapper.wrap_for_brax_training,
         progress_fn=progress,
+        # get-up: evaluate the policy's mean action. brax's default samples it, and with the exploration noise the
+        # eval robots fell over — the printed "upright" was ~1 % while the deterministic policy stood ~25 %
+        deterministic_eval=(args.env == "getup"),
         save_checkpoint_path=str(out),
         restore_checkpoint_path=args.restore,
     )
@@ -168,7 +180,7 @@ def main(argv=None) -> int:
     # final checkpoint (brax also saved one per eval under <out>/<step>/)
     ckpt_config = ppo_checkpoint.network_config(
         observation_size=env.observation_size, action_size=env.action_size,
-        normalize_observations=True, network_factory=network_factory())
+        normalize_observations=True, network_factory=network_factory(env=args.env))
     ppo_checkpoint.save(out, args.steps, params, ckpt_config)
     (out / "LATEST").write_text(f"{args.steps:012d}\n")
     total = time.time() - t0

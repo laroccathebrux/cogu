@@ -169,13 +169,18 @@ class Sim2Sim:
 
 
 def getup_config(ckpt: Path):
+    """The get-up env config a checkpoint was trained with; `full_range_actions` marks the first design
+    (actions spanning each joint's range), from before `action_scale` existed."""
+    import json
     cfg = cogu_getup.default_config()
+    saved = {}
     for d in (ckpt, ckpt.parent):
         f = d / cogu_env.ENV_CONFIG_FILE
         if f.exists():
-            import json
-            cfg.update(json.loads(f.read_text()))
+            saved = json.loads(f.read_text())
             break
+    cfg.update(saved)
+    cfg.full_range_actions = "action_scale" not in saved
     return cfg
 
 
@@ -187,8 +192,10 @@ class GetupPolicy:
         self.cfg = getup_config(ckpt)
         self.policy = jax.jit(load_policy(ckpt))
         self.key = jax.random.PRNGKey(seed)
-        self.centre = (sim.lowers + sim.uppers) / 2
-        self.half = (sim.uppers - sim.lowers) / 2
+        # v1 checkpoints of the first design mapped actions to the whole joint range; from then on: rest + offset
+        full = self.cfg.full_range_actions
+        self.centre = (sim.lowers + sim.uppers) / 2 if full else sim.default_pose
+        self.half = (sim.uppers - sim.lowers) / 2 if full else self.cfg.action_scale
         self.priv = jp.zeros(53)
         self.calm = 0.0
 
