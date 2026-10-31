@@ -18,7 +18,7 @@ Keys (in the viewer window):
     End          stop (zero command)
     Home         reset the robot to the rest pose
     , / .        previous / next checkpoint of the same training run (the policy at each evaluation)
-    Ctrl + right-drag on a body: push the robot (MuJoCo's perturbation)
+    double-click a body to select it, then Ctrl + right-drag: push it (Ctrl + left-drag: twist it)
 
 The env config each checkpoint was trained with (action filter, scales) is read from the
 `env_config.json` train.py saves next to it.
@@ -253,6 +253,9 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None) -> int:
                 if pending["reset"]:
                     sim.reset()
                     pending["reset"] = False
+                # mouse pushes: the passive viewer only records them; the physics loop applies them
+                sim.d.xfrc_applied[:] = 0.0
+                mujoco.mjv_applyPerturbForce(sim.m, sim.d, v.perturb)
                 sim.step()
                 if sim.fallen():
                     falls += 1
