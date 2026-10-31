@@ -62,7 +62,8 @@ de 0,2 a 0,6 m/s, parado e andando a 0,15 m/s; conta quantos de 40 o robô aguen
 - **v7** (30 M no Colab, a partir da v5): um empurrão que a IMU sente (giro > 0,6 rad/s ou inclinação > 9°) liga o
   relógio da marcha e as recompensas de passo por 1 s, mesmo com comando zero. Agora ela pisa para se recuperar;
   ainda cai para trás a 0,3 m/s e com 0,5 m/s ou mais em qualquer direção, perto do limite do servo realista.
-  O checkpoint da v7 ficou no Colab (o Chrome bloqueou o download); retreinar custa ~30 min.
+  Checkpoint em `checkpoints/cogu_walk_v7` (o download do Colab tinha chegado em `build/`; refeito o teste de
+  empurrão aqui: 21/40, igual ao Colab). Vídeo: `docs/renders/sim_walk_v7.mp4`.
 
 ## Levantar (em andamento, 2026-10-31)
 
