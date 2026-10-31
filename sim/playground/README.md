@@ -45,6 +45,41 @@ local (`command_tracking.py`, modelo com o iPhone 15 Pro Max):
 - a partir da v4 (`--restore`), 2 M passos: 0,14 m/s a 0,15 pedido, 0,18 e 0,19 m/s a 0,25 e 0,30 sem cair
   (a v4 caía), pé a 22,5 mm, 0 % de pé no ar com comando zero (a v4: 40 %). Giro, ré e lado ainda fracos.
 
+## Recuperar de empurrões: v6 e v7 (2026-10-31)
+
+`push_recovery.py`: empurrão súbito (mudança de velocidade do corpo, como no treino) para frente / trás / lados,
+de 0,2 a 0,6 m/s, parado e andando a 0,15 m/s; conta quantos de 40 o robô aguenta e quanto os pés se afastam.
+
+| | v5 | v6 | v7 |
+|---|---|---|---|
+| Empurrões aguentados (de 40) | 20 | 20 | **21** |
+| Parado e empurrado: distância entre os pés | 55 mm (não pisa) | 55 mm | **62–111 mm (pisa)** |
+| Parado, para frente | cai a 0,4 | cai a 0,3 | **aguenta 0,4** |
+
+- **v6** (30 M no Colab, a partir da v5): penalidades de "ficar parado" só com o corpo devagar, empurrões até
+  0,6 m/s. Não aprendeu o passo de recuperação: com comando zero o relógio da marcha ficava parado e as
+  recompensas de passo desligadas, então pisar nunca valia nada.
+- **v7** (30 M no Colab, a partir da v5): um empurrão que a IMU sente (giro > 0,6 rad/s ou inclinação > 9°) liga o
+  relógio da marcha e as recompensas de passo por 1 s, mesmo com comando zero. Agora ela pisa para se recuperar;
+  ainda cai para trás a 0,3 m/s e com 0,5 m/s ou mais em qualquer direção, perto do limite do servo realista.
+  O checkpoint da v7 ficou no Colab (o Chrome bloqueou o download); retreinar custa ~30 min.
+
+## Levantar (em andamento, 2026-10-31)
+
+`cogu_getup.py` + `train.py --env getup` + modelo `cogu_lower_body_mjx_getup.xml` (bolha, tambor e pernas tocam
+o chão) + `getup_eval.py` + `play.py --getup` (troca sozinho entre levantar e andar). Ainda não levanta:
+
+- 1ª versão (ação na faixa inteira de cada junta): nem os episódios que começam em pé ficavam em pé;
+- ação como desvio da pose de repouso, saída inicial ~0, ruído 0,3, currículo de inícios (em pé / inclinado /
+  deitado), avaliação sem ruído: no início do treino 32 % do tempo em pé (quem começa em pé fica), mas o treino
+  (11 M no Colab) desaprende — 0,9 %. Com o ruído do treino, quem está em pé cai do mesmo jeito, deitado é um
+  estado estável que paga razoável, e o horizonte do desconto (0,97: ~0,7 s) é curto para uma manobra de
+  segundos.
+
+Próximo passo sugerido: antes de mais RL, um estudo de viabilidade — otimizar (CMA-ES, CPU) uma sequência curta
+de poses a partir das posições deitado de frente, de costas e de lado. Sem braços, só as pernas e a bolha em
+forma de ovo podem levantar o robô; se nenhuma sequência funcionar, o RL também não vai achar.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
