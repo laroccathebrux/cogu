@@ -35,7 +35,7 @@ velocidade sem carga, 0,40 N·m·s/rad (a força contraeletromotriz). Atrito de 
 A v4 usava o joelho a 4 rad/s, o que um servo com carga não alcança. Neste modelo ela cai a 0,25 e 0,30 m/s e
 segue os outros comandos com menos força. Esse é o motivo da v5.
 
-**v5 (em andamento).** Mudanças no env: com comando zero a fase da marcha fica parada na posição inicial (os dois
+**v5.** Mudanças no env: com comando zero a fase da marcha fica parada na posição inicial (os dois
 pés no chão) e um custo novo cobra pé no ar (`feet_air_still`); o rastreamento ficou mais exigente
 (`tracking_sigma` 0,05 → 0,02, giro 0,5 → 0,2), porque a v4 seguia só metade dos comandos de lado e de ré. Teste
 local (`command_tracking.py`, modelo com o iPhone 15 Pro Max):
@@ -45,7 +45,27 @@ local (`command_tracking.py`, modelo com o iPhone 15 Pro Max):
 - a partir da v4 (`--restore`), 2 M passos: 0,14 m/s a 0,15 pedido, 0,18 e 0,19 m/s a 0,25 e 0,30 sem cair
   (a v4 caía), pé a 22,5 mm, 0 % de pé no ar com comando zero (a v4: 40 %). Giro, ré e lado ainda fracos.
 
-O treino longo no Colab parte da v4 (`RESTORE` no notebook, 30 M passos).
+## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
+
+`checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
+no robô com o iPhone 15 Pro Max (1,28 kg) e o modelo de servo realista. Vídeo: `docs/renders/sim_walk_v5.mp4`.
+
+`command_tracking.py` no MuJoCo normal (sim2sim), 8 s a partir da pose de repouso, sem quedas em nenhum comando:
+
+| Comando | v4 (modelo novo) | **v5** |
+|---|---|---|
+| 0,15 m/s | 0,13 | **0,16** |
+| 0,25 m/s | cai | **0,21** |
+| 0,30 m/s | cai | **0,22** |
+| ré 0,10 m/s | 0,02 | **0,07** |
+| de lado 0,10 m/s | 0,02 / 0,01 | 0,03 / 0,03 |
+| giro +0,6 / −0,6 rad/s | 0,42 / −0,30 | **0,56 / −0,59** |
+| giro 1,0 rad/s | 0,54 | **0,75** |
+| parado: pé no ar | 40 % | **0 %** |
+
+`gait_metrics.py` a 0,15 m/s: 1,71 Hz, tremor 0,03, pé a 25 mm (26 / 24 mm), 46 / 49 % no ar, escorregão 0,010 m/s.
+O giro ficou simétrico (o desvio para a esquerda sumiu) e a ré dobrou; andar de lado continua fraco (um terço do
+pedido) — é o próximo ajuste da marcha.
 
 ## Resultado v4 — primeira marcha de verdade (2026-10-30)
 
