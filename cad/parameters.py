@@ -148,6 +148,10 @@ class ServoSTS3215:
     mount_hole_z: float = 10.25         # ± across the width (20.5 mm apart)
     mount_holes_x_horn_side: tuple = (8.3, 29.0)    # X from shaft axis, on the horn-side face
     mount_holes_x_back_side: tuple = (8.3, 32.75)   # X from shaft axis, on the back face
+    # the two bus sockets (5264, 3 pins) sit side by side across the width on the BACK face; plugs go in along −Y.
+    # From a product photo (2026-10-30), ±1–2 mm: to measure on a real servo.
+    bus_socket_x: tuple = (11.6, 16.5)            # X from shaft axis
+    bus_socket_half_width: float = 10.1           # |Z| reach of the pair
     # overall envelope along Y (from the horn-side case face)
     total_height: float = 28.75 + 3.8 + 4.7  # back disc bottom -> horn disc top = 37.25
     # --- actuator model for the simulator (2026-10-30). A DC motor behind a 1:345 gearbox, driven by the
@@ -199,6 +203,12 @@ BEARING_PLATE_THICKNESS = 6.0   # plate holding the 688ZZ (5 mm) + 1 mm lip
 BACK_HUB_PLATE_THICKNESS = 4.0  # printed hub bolted to the back disc (M2 heads counterbored 2 mm)
 BACK_HUB_STUB_LENGTH = 5.0      # Ø(8 − 0.15) stub that enters the bearing
 FORK_CLEARANCE = 0.8            # gap between fork plates and servo discs
+# The STS3215's two bus sockets are on its BACK face, ~14 mm from the shaft (hardware/wiring). At the hip roll
+# the U's rear paddle covers them over the whole range (8.6 mm from the case face), so that paddle sits this much
+# further back, on a longer back hub (`back_hub_roll`). The leg stays put: a root block behind the pitch beam carries
+# the paddle (hip.py). 6 mm is a guess for a 5264 plug plus the cable bend (14.6 mm in all): to revisit once the plug
+# is measured.
+ROLL_REAR_PADDLE_SHIFT = 6.0
 CABLE_CHANNEL_WIDTH = 6.0       # for the 3-wire servo lead (JST 2.54 3P connector ≈ 8 × 3.5 mm)
 CABLE_CHANNEL_DEPTH = 4.0
 

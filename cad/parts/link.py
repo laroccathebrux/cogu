@@ -42,8 +42,9 @@ def _servo_to_housing(part: Part) -> Part:
     return part.rotate(Axis.Y, -90)
 
 
-def servo_housing(open_top: float = 0.0) -> tuple[Part, Part]:
-    """Return (housing_solid, cutters) in the housing frame. Subtract cutters after unions."""
+def servo_housing(open_top: float = 0.0, bus_window: bool = False) -> tuple[Part, Part]:
+    """Return (housing_solid, cutters) in the housing frame. Subtract cutters after unions.
+    `bus_window`: open the back wall over the servo's two bus sockets, so the plugs pass through."""
     z0, z1 = K.HOUSING_Z_BOTTOM, K.HOUSING_Z_TOP + open_top
     housing = Box(2 * K.HOUSING_X_HALF, K.HOUSING_Y1 - K.HOUSING_Y0, z1 - z0,
                   align=(Align.CENTER, Align.MIN, Align.MIN))
@@ -64,6 +65,14 @@ def servo_housing(open_top: float = 0.0) -> tuple[Part, Part]:
         c = c.rotate(Axis.X, 90).moved(Location((-z_s, K.HOUSING_Y0 + P.LINK_WALL / 2, x_s)))
         screws = c if screws is None else screws + c
     cutters = pocket + back_hole + screws
+    if bus_window:
+        # starts inside the back-disc hole (r 10.4) so no sliver is left between them; |x| stops short of the
+        # heads of the screws at servo (8.3, ±10.25)
+        x0, x1 = 10.3, S.bus_socket_x[1] + 0.5
+        half = S.bus_socket_half_width - 0.3
+        window = Box(2 * half, P.LINK_WALL + 2 * P.CLEARANCE_LOOSE + 2, x1 - x0,
+                     align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((0, K.HOUSING_Y0 + P.LINK_WALL / 2, x0)))
+        cutters = cutters + window
     return housing, cutters
 
 

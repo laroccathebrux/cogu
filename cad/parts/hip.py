@@ -35,7 +35,13 @@ PITCH_AXIS_Z = ROLL_LINK_BEAM_TOP - K.HOUSING_X_HALF     # beam = pitch housing,
 PITCH_HOUSING_OPEN = 1.0
 # The pitch servo body points FORWARD in the beam, so the thigh is free to swing backwards
 # (digitigrade rest pose and crouch); the beam's rear end is flush with the rear paddle.
+# The U's rear paddle is pushed back ROLL_REAR_PADDLE_SHIFT, clear of the roll servo's bus sockets. The pitch beam
+# stays put (moving it back would leave the front paddle hanging off its open front end, where the servo slides
+# in): a root block behind the beam carries the paddle instead, and the leg does not move.
+ROLL_REAR_Y0 = K.BEARING_PLATE_Y0 - P.ROLL_REAR_PADDLE_SHIFT
+ROLL_REAR_Y1 = K.BEARING_PLATE_Y1 - P.ROLL_REAR_PADDLE_SHIFT
 PITCH_AXIS_X = K.BEARING_PLATE_Y0 - P.CLEARANCE_LOOSE - K.HOUSING_Z_BOTTOM   # -30.84
+BEAM_REAR_X = PITCH_AXIS_X + K.HOUSING_Z_BOTTOM                              # -43.65: rear end of the pitch beam
 # Lateral position of the pitch stack. The leg's fork (horn plate .. bearing plate) is wider
 # than HIP_SPACING, so the fork centre is pushed OUTBOARD of the roll/yaw axis until the two
 # legs' inner plates are LEG_GAP apart at the midline.
@@ -106,8 +112,9 @@ def build_yaw_link() -> CoguPart:
     plate = Box(2 * K.HOUSING_X_HALF + 2, 2 * K.HOUSING_X_HALF + 2, YAW_PLATE_Z1 - YAW_PLATE_Z0,
                 align=(Align.CENTER, Align.CENTER, Align.MIN))
     plate = plate.fillet(4.0, plate.edges().filter_by(Axis.Z)).moved(Location((0, 0, YAW_PLATE_Z0)))
-    # roll servo housing: housing frame (Y = shaft, Z = body) -> yaw-link frame (X = shaft, −Z = body)
-    housing, cutters = servo_housing()
+    # roll servo housing: housing frame (Y = shaft, Z = body) -> yaw-link frame (X = shaft, −Z = body).
+    # Window over the bus sockets: the plugs stand in the gap to the U's shifted rear paddle.
+    housing, cutters = servo_housing(bus_window=True)
     def to_yaw(p: Part) -> Part:
         """housing +Y -> +X (shaft forward), housing +Z -> -Z (body hangs down), housing +X -> +Y."""
         p = p.rotate(Axis.Z, -90)      # +Y -> +X, +X -> -Y
@@ -138,8 +145,8 @@ def build_roll_link() -> CoguPart:
     """U bracket around the roll servo (horn paddle front, bearing paddle rear) whose
     bottom beam houses the hip-pitch servo (shaft along +Y)."""
     front = paddle(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, ROLL_LINK_BEAM_TOP - 2.0, 0.0)
-    rear = paddle(K.BEARING_PLATE_Y0, K.BEARING_PLATE_Y1, ROLL_LINK_BEAM_TOP - 2.0, 0.0)
-    pcut = horn_paddle_cutters(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, 0.0) + bearing_paddle_cutter(K.BEARING_PLATE_Y1, 0.0)
+    rear = paddle(ROLL_REAR_Y0, ROLL_REAR_Y1, ROLL_LINK_BEAM_TOP - 2.0, 0.0)
+    pcut = horn_paddle_cutters(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, 0.0) + bearing_paddle_cutter(ROLL_REAR_Y1, 0.0)
     # paddles were built with Y as the axis; the roll axis is X: rotate −90° about Z (+Y -> +X)
     front, rear, pcut = (s.rotate(Axis.Z, -90) for s in (front, rear, pcut))
 
@@ -147,7 +154,12 @@ def build_roll_link() -> CoguPart:
     housing, cutters = servo_housing(open_top=PITCH_HOUSING_OPEN)
     housing = housing.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
     cutters = cutters.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
-    solid = front + rear + housing - (pcut + cutters)
+    # root of the shifted rear paddle, behind the beam; stops 1 mm short of the thigh's horn plate, which swings
+    # past it at hip pitch < -60°
+    root_y0, root_y1 = -K.PADDLE_RADIUS, PITCH_AXIS_Y + K.HORN_PLATE_Y0 - 1.0
+    root = Box(BEAM_REAR_X + 2.0 - ROLL_REAR_Y0, root_y1 - root_y0, 8.0,
+               align=(Align.MIN, Align.MIN, Align.MAX)).moved(Location((ROLL_REAR_Y0, root_y0, ROLL_LINK_BEAM_TOP)))
+    solid = front + rear + root + housing - (pcut + cutters)
     servo_com = Vector(PITCH_AXIS_X + (S.x_min + S.x_max) / 2, PITCH_AXIS_Y + S.y_back_face / 2, PITCH_AXIS_Z)
     return CoguPart(
         name="hip_roll_link",

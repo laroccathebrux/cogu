@@ -25,7 +25,7 @@ from cad import stack as K
 from cad.part import CoguPart
 from cad.parts import hip
 from cad.parts import phone_mount
-from cad.parts.back_hub import build_back_hub
+from cad.parts.back_hub import build_back_hub, build_back_hub_roll
 from cad.parts.foot import build_foot
 from cad.parts.link import build_shin, build_thigh
 
@@ -59,6 +59,7 @@ def build_parts() -> dict[str, CoguPart]:
         "shin": build_shin(),
         "foot": build_foot(),
         "back_hub": build_back_hub(),
+        "back_hub_roll": build_back_hub_roll(),
         "hip_cover": phone_mount.build_hip_cover(),
         "phone_cradle": phone_mount.build_phone_cradle(),
         **({f"phone_guard_{P.PHONE_GUARD}": phone_mount.GUARDS[P.PHONE_GUARD]()} if P.PHONE_GUARD else {}),
@@ -69,7 +70,7 @@ def build_parts() -> dict[str, CoguPart]:
 # parts that are never mirrored (pelvis-frame parts on the centre line): one mesh / one STL
 SYMMETRIC_PARTS = ("pelvis", "hip_cover", "phone_cradle", "phone_guard_frame", "phone_guard_bubble", "phone_guard_tpu")
 # parts printed from a single STL (the back hub is asymmetric but its mirror image is the same part turned over)
-ONE_PRINT_FILE = SYMMETRIC_PARTS + ("back_hub",)
+ONE_PRINT_FILE = SYMMETRIC_PARTS + ("back_hub", "back_hub_roll")
 
 
 def mirrored(part: Part) -> Part:
@@ -96,7 +97,7 @@ def leg(side: str) -> Body:
                 parts=[PartInstance("hip_roll_link", (0, 0, 0), m),
                        # hub axis Y -> X. Never mirrored: the roll horn points +X on BOTH legs, and
                        # mirroring (Y flip) before the Z rotation would send the hub to +X, in front.
-                       PartInstance("back_hub", (0, 0, 0), False, rot_z=-90)],
+                       PartInstance("back_hub_roll", (0, 0, 0), False, rot_z=-90)],
                 children=[thigh])
     yaw_range = rng["hip_yaw"] if side == "R" else (-rng["hip_yaw"][1], -rng["hip_yaw"][0])   # mirrored
     yaw = Body(f"{side}_hip_yaw", (0, yaw_y, 0), f"{side}_hip_yaw", (0, 0, 1), yaw_range,
