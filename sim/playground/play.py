@@ -216,7 +216,7 @@ class GetupPolicy:
         s = self.sim
         self.key, k = jax.random.split(self.key)
         action, _ = self.policy({"state": jp.asarray(self._obs()), "privileged_state": self.priv}, k)
-        action = np.asarray(action)
+        action = np.clip(np.asarray(action), -1.0, 1.0)   # as CoguGetup.step (the policy may not be squashed)
         a = self.cfg.action_filter_alpha
         self.filtered = a * action + (1.0 - a) * self.filtered
         target = np.clip(self.centre + self.filtered * self.half, s.lowers, s.uppers)

@@ -97,40 +97,24 @@ def _evaluate(task):
     return names, tau, load, -floor
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--xml", default=str(GETUP_XML))
-    ap.add_argument("--tilt-step", type=float, default=2.5)
-    ap.add_argument("--joint-step", type=float, default=5.0)
-    ap.add_argument("--max-torque", type=float, default=1.2, help="N·m per joint (stall is 1.9)")
-    ap.add_argument("--side", choices=("back", "front"), default="back", help="lying face up or face down")
-    ap.add_argument("--out", help="write the path (tilt, joint targets) as JSON")
-    args = ap.parse_args(argv)
-
-    m = mujoco.MjModel.from_xml_path(args.xml)
+def stable_map(xml: str, side: str = "back", tilt_step: float = 5.0, joint_step: float = 5.0,
+               max_torque: float = 1.2, max_tilt: float = 115.0):
+    """-> (tilts, stable {(tilt, pitch, knee, ankle): (supports, torque, foot load, pelvis height)},
+    nxt {pose: next pose towards upright near `rest`, None at the goal} for the poses a slow path connects)."""
+    m = mujoco.MjModel.from_xml_path(xml)
     rng = {j: np.degrees(m.jnt_range[m.joint("L_" + j).id]) for j in JOINTS}
-    axes = [np.arange(np.ceil(lo / args.joint_step) * args.joint_step, hi + 1e-6, args.joint_step)
+    axes = [np.arange(np.ceil(lo / joint_step) * joint_step, hi + 1e-6, joint_step)
             for lo, hi in (rng[j] for j in JOINTS)]
-    sign = 1 if args.side == "back" else -1
-    tilts = sign * np.arange(0.0, 115.0 + 1e-6, args.tilt_step)
+    sign = 1 if side == "back" else -1
+    tilts = sign * np.arange(0.0, max_tilt + 1e-6, tilt_step)
     tasks = [(float(t), *map(float, q)) for t in tilts for q in itertools.product(*axes)]
-    print(f"{Path(args.xml).name}: {len(tasks)} poses, lying on the {args.side}", flush=True)
-    with mp.get_context("spawn").Pool(max(1, mp.cpu_count() - 1), _init, (args.xml,)) as pool:
+    print(f"{Path(xml).name}: {len(tasks)} poses, lying on the {side}", flush=True)
+    with mp.get_context("spawn").Pool(max(1, mp.cpu_count() - 1), _init, (xml,)) as pool:
         results = pool.map(_evaluate, tasks, chunksize=2000)
-    stable = {t[:4]: r for t, r in zip(tasks, results) if r is not None and r[1] <= args.max_torque}
-
-    print("stable poses by tilt (supports of the easiest one):")
-    for t in tilts:
-        here = [(key, r) for key, r in stable.items() if key[0] == t]
-        if here:
-            kinds = sorted({"+".join(r[0]) for _, r in here})
-            print(f"  {t:+6.1f}°  {len(here):5d}  " + ", ".join(k.replace("_hull", "").replace("foot_sole", "feet")
-                                                           for k in kinds[:4]))
-        else:
-            print(f"  {t:+6.1f}°      0")
+    stable = {t[:4]: r for t, r in zip(tasks, results) if r is not None and r[1] <= max_torque}
 
     # breadth-first search from upright near `rest` through neighbouring stable poses (the graph is undirected)
-    ts, js = args.tilt_step, args.joint_step
+    ts, js = tilt_step, joint_step
     rest = np.array([-35.0, 70.0, -35.0])
     goal = [key for key in stable if key[0] == 0 and np.all(np.abs(np.array(key[1:]) - rest) <= 2 * js)]
     nxt = {key: None for key in goal}                # pose -> next pose towards upright
@@ -143,6 +127,31 @@ def main(argv=None) -> int:
             if n in stable and n not in nxt:
                 nxt[n] = key
                 queue.append(n)
+    return tilts, stable, nxt
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--xml", default=str(GETUP_XML))
+    ap.add_argument("--tilt-step", type=float, default=5.0, help="deg (2.5 leaves few flat-foot poses: grid artifact)")
+    ap.add_argument("--joint-step", type=float, default=5.0)
+    ap.add_argument("--max-torque", type=float, default=1.2, help="N·m per joint (stall is 1.9)")
+    ap.add_argument("--side", choices=("back", "front"), default="back", help="lying face up or face down")
+    ap.add_argument("--out", help="write the path (tilt, joint targets) as JSON")
+    args = ap.parse_args(argv)
+
+    tilts, stable, nxt = stable_map(args.xml, args.side, args.tilt_step, args.joint_step, args.max_torque)
+
+    print("stable poses by tilt (supports of the easiest one):")
+    for t in tilts:
+        here = [(key, r) for key, r in stable.items() if key[0] == t]
+        if here:
+            kinds = sorted({"+".join(r[0]) for _, r in here})
+            print(f"  {t:+6.1f}°  {len(here):5d}  " + ", ".join(k.replace("_hull", "").replace("foot_sole", "feet")
+                                                           for k in kinds[:4]))
+        else:
+            print(f"  {t:+6.1f}°      0")
+
     on_feet = [key for key in nxt if stable[key][0] == ["foot_sole"]]
     window = max(on_feet, key=lambda key: (abs(key[0]), -stable[key][1]), default=None)
     lying = [key for key in nxt if abs(key[0]) >= 85 and "bubble_hull" in stable[key][0]]

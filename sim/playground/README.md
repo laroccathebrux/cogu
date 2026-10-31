@@ -71,7 +71,7 @@ de 0,2 a 0,6 m/s, parado e andando a 0,15 m/s; conta quantos de 40 o robô aguen
 o chão) + `getup_eval.py` + `play.py --getup` (troca sozinho entre levantar e andar). Ainda não levanta:
 
 - 1ª versão (ação na faixa inteira de cada junta): nem os episódios que começam em pé ficavam em pé;
-- ação como desvio da pose de repouso, saída inicial ~0, ruído 0,3, currículo de inícios (em pé / inclinado /
+- ação como desvio da pose de repouso, saída inicial ~0, ruído 0,3 (na verdade ignorado: ver v2 abaixo), currículo de inícios (em pé / inclinado /
   deitado), avaliação sem ruído: no início do treino 32 % do tempo em pé (quem começa em pé fica), mas o treino
   (11 M no Colab) desaprende — 0,9 %. Com o ruído do treino, quem está em pé cai do mesmo jeito, deitado é um
   estado estável que paga razoável, e o horizonte do desconto (0,97: ~0,7 s) é curto para uma manobra de
@@ -140,6 +140,31 @@ uv run python sim/playground/getup_handoff.py build/getup_search/back_land.json
 
 (As variantes `build/mjcf/variants/heel_*.xml` são o MJCF de get-up com a caixa da sola alongada para trás,
 geradas com `MjSpec`; o CAD do pé não mudou.)
+
+### Política de levantar v2: pousos como ponto de partida (2026-10-31)
+
+- **O bug que derrubava todos os treinos de levantar:** a política padrão do brax (`tanh_normal`) ignora
+  `init_noise_std` e a inicialização da média — o ruído de exploração era ~0,7 rad, não 0,3. Com a ação zero
+  (pose `rest`) mais ruído, o robô em pé ainda está de pé após 6 s em 100 % das vezes com 0,05, 84 % com 0,1, 3 %
+  com 0,15 e 0 % com 0,3. Todo treino, mesmo só com partidas em pé, deitava em 0,2 M passos. Agora a política é
+  `normal` com log-desvio aprendido a partir de 0,05 (a ação é cortada em ±1 no ambiente), entropia 1e-4, desconto
+  0,99; em 0,4 M passos locais quem começa em pé continua 100 % em pé.
+- **Partidas** (`start_mix`): em pé 10 %, inclinado em `rest` 10 %, **sobre os pés inclinado 35 %**, **no meio do
+  impulso 20 %**, deitado após queda 25 %. As duas novas vêm de `getup_starts.py`: poses do mapa quase estático em
+  que só os pés seguram e há caminho lento até `rest` (15°–55° de costas / 40° de frente no pé atual; até 75° com
+  o calcanhar de 45 mm), e instantâneos das sequências de impulso de `getup_sequences/` quando a pelve passa de
+  up_z 0,3. O treino mostra o % do tempo em pé por tipo de partida.
+- Recompensa de altura agora `((h − 0,07)/(0,20 − 0,07))²` (peso 2): a linear pagava 65 % a um agachamento.
+- O auto-reset do Playground não reinicia o `info`: o filtro e a fila de atraso agora recomeçam da pose inicial no
+  primeiro passo de cada episódio.
+- Calcanhar sem mexer no CAD: `variants.py --heel 45` (no notebook, `HEEL = 45`).
+
+```bash
+uv run python sim/playground/variants.py --heel 45
+uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/heel_45.xml
+uv run python sim/playground/train.py --env getup --xml build/mjcf/variants/heel_45.xml --steps 2000000
+uv run python sim/playground/getup_eval.py CKPT --xml build/mjcf/variants/heel_45.xml --starts feet throw drop
+```
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 

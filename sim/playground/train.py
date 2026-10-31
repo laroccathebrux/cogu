@@ -54,11 +54,15 @@ def network_factory(policy_hidden=(128, 128, 128), value_hidden=(256, 256, 256),
     extra = {}
     if env == "getup":
         # start from "stand still": the policy's mean output starts ~0 (zero action = the rest pose) and the
-        # exploration noise small. With brax's defaults (noise std 1 on a ±1 rad action) the noise alone knocked
-        # over every robot that started standing, so the policy never learned what standing pays.
+        # exploration noise small. Zero action plus noise, standing, 6 s: std 0.05 -> 100 % still up, 0.1 -> 84 %,
+        # 0.15 -> 3 %, 0.3 -> 0 %. brax's default "tanh_normal" policy ignores init_noise_std and the mean init (a
+        # plain MLP, std = softplus(output) ≈ 0.7 at the start): every get-up run until 2026-10-31 trained with that
+        # noise, and lay down within 0.2 M steps even with only standing starts. "normal" honours both, with a
+        # learned state-independent log std; the env clips the action to ±1.
         from brax.training import networks as brax_networks
-        extra = dict(init_noise_std=0.3, mean_kernel_init_fn=brax_networks.KERNEL_INITIALIZER["uniform"],
-                     mean_kernel_init_kwargs={"scale": 0.01})
+        extra = dict(distribution_type="normal", noise_std_type="log", init_noise_std=0.05,
+                     mean_kernel_init_fn=brax_networks.KERNEL_INITIALIZER["normal"],
+                     mean_kernel_init_kwargs={"stddev": 0.01})
     return functools.partial(
         ppo_networks.make_ppo_networks,
         policy_hidden_layer_sizes=tuple(policy_hidden),
@@ -85,10 +89,13 @@ def parse_args(argv=None):
     ap.add_argument("--num-minibatches", type=int, default=4)
     ap.add_argument("--num-updates-per-batch", type=int, default=4)
     ap.add_argument("--learning-rate", type=float, default=3e-4)
-    ap.add_argument("--entropy-cost", type=float, default=5e-3)
-    ap.add_argument("--discounting", type=float, default=0.97)
+    ap.add_argument("--entropy-cost", type=float, default=None, help="default 5e-3 (walk), 1e-4 (getup: more noise knocks it over)")
+    ap.add_argument("--discounting", type=float, default=None,
+                    help="default 0.97 (walk), 0.99 (getup: a get-up takes seconds, 0.97 sees ~0.7 s ahead)")
     ap.add_argument("--clipping-epsilon", type=float, default=0.2)
     ap.add_argument("--no-domain-randomization", action="store_true")
+    ap.add_argument("--start-mix", type=float, nargs=5, default=None,
+                    help="getup: start shares (stand tilt feet throw drop); default: the env config's")
     ap.add_argument("--restore", default=None, help="checkpoint step dir to warm-start from")
     ap.add_argument("--devices", type=int, default=1,
                     help="virtual CPU devices for brax's pmap (experimental: >1 segfaults on macOS with "
@@ -104,10 +111,16 @@ def main(argv=None) -> int:
         "batch_size * num_minibatches must be a multiple of num_envs"
     assert args.num_envs % args.devices == 0, "num_envs must be a multiple of --devices"
 
+    if args.discounting is None:
+        args.discounting = 0.99 if args.env == "getup" else 0.97
+    if args.entropy_cost is None:
+        args.entropy_cost = 1e-4 if args.env == "getup" else 5e-3
     print(f"jax backend: {jax.default_backend()} devices: {jax.devices()}")
     if args.env == "getup":
         env_cfg = cogu_getup.default_config()
         env_cfg.episode_length = args.episode_length
+        if args.start_mix:
+            env_cfg.start_mix = tuple(args.start_mix)
         xml = args.xml or str(cogu_getup.GETUP_XML)
         env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
         cogu_getup.save_config(env_cfg, out)
@@ -137,7 +150,12 @@ def main(argv=None) -> int:
         # brax sums per-step metrics over the episode: divide by the length for a mean
         if args.env == "getup":
             upright = metrics.get("eval/episode_upright", float("nan")) / max(length, 1.0)
-            tail = f"upright {100 * upright:5.1f} % of the time"
+            kinds = []
+            for name in cogu_getup.START_KINDS:   # share of the time upright, by how the episode started
+                n = metrics.get(f"eval/episode_start_{name}", 0.0)
+                if n > 0:
+                    kinds.append(f"{name} {100 * metrics[f'eval/episode_upright_{name}'] / n:3.0f}")
+            tail = f"upright {100 * upright:5.1f} % of the time ({' '.join(kinds)})"
         else:
             speed = metrics.get("eval/episode_forward_speed", float("nan")) / max(length, 1.0)
             tail = f"mean fwd speed {speed:+.3f} m/s"
