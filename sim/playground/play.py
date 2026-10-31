@@ -99,6 +99,7 @@ class Sim2Sim:
         self.last_act = np.zeros(self.m.nu)
         self.filtered = np.zeros(self.m.nu)
         self.phase = np.array([0.0, np.pi])
+        self.recover_time = 0.0
         self.history = [self.default_pose.copy() for _ in range(self.delay + 1)]
         self.obs = self._obs()
 
@@ -133,7 +134,16 @@ class Sim2Sim:
         self.obs = self._obs()
         self.last_act = action
         self.phase = np.fmod(self.phase + self.phase_dt + np.pi, 2 * np.pi) - np.pi
-        if self.cfg.get("stand_phase_reset", False) and np.linalg.norm(self.command) <= 0.05:
+        # a push the IMU feels runs the gait clock for a while (v7), exactly as cogu_env.step does
+        rc = self.cfg.recover
+        gyro = self.d.sensordata[self.gyro_adr:self.gyro_adr + 2]
+        up_z = self.d.site_xmat[self.imu].reshape(3, 3)[2, 2]
+        if rc.enable and (np.linalg.norm(gyro) > rc.gyro or up_z < np.cos(rc.tilt)):
+            self.recover_time = rc.hold
+        else:
+            self.recover_time = max(self.recover_time - self.dt, 0.0)
+        stepping = np.linalg.norm(self.command) > 0.05 or self.recover_time > 0.0
+        if self.cfg.get("stand_phase_reset", False) and not stepping:
             self.phase = np.array([0.0, np.pi])          # standing: hold the start phase, as in training
 
     def fallen(self) -> bool:
@@ -153,6 +163,7 @@ class Sim2Sim:
         self.last_act = np.zeros(self.m.nu)
         self.filtered = (q - self.default_pose) / self.cfg.action_scale
         self.phase = np.array([0.0, np.pi])
+        self.recover_time = 0.0
         self.history = [q.copy() for _ in range(self.delay + 1)]
         self.obs = self._obs()
 

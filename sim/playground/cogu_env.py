@@ -97,6 +97,10 @@ def default_config() -> config_dict.ConfigDict:
         # v6: pushes up to 0.6 m/s (v5: 0.3) — beyond 0.3 v5 never learned a recovery step
         push_config=config_dict.create(enable=True, interval_range=[3.0, 6.0], magnitude_range=[0.1, 0.6]),
         gait_freq_range=[1.5, 2.0],   # Hz
+        # v7: a push the IMU feels (gyro or tilt over a threshold) runs the gait clock and the stepping rewards for
+        # `hold` s even on a zero command, so a pushed robot can step to recover. v6 only stopped charging for a
+        # lifted foot while the body moved, and never found the recovery step (feet stayed 55 mm apart)
+        recover=config_dict.create(enable=True, gyro=0.6, tilt=0.15, hold=1.0),   # rad/s, rad (~9°), s
         stand_phase_reset=True,       # zero command: the gait phase holds its start value (both feet down);
                                       # checkpoints up to v4 kept it running (config_for_checkpoint)
         command_resample_steps=250,   # 5 s
@@ -130,10 +134,13 @@ def config_for_checkpoint(ckpt: Union[str, Path]) -> config_dict.ConfigDict:
             cfg.update(config_dict.ConfigDict(saved))
             if "stand_phase_reset" not in saved:      # trained before it existed
                 cfg.stand_phase_reset = False
+            if "recover" not in saved:
+                cfg.recover.enable = False
             return cfg
     cfg = default_config()
     cfg.action_filter_alpha = 1.0
     cfg.stand_phase_reset = False
+    cfg.recover.enable = False
     return cfg
 
 
@@ -250,6 +257,8 @@ class CoguJoystick(mjx_env.MjxEnv):
             "push": jp.zeros(2),
             "push_step": 0,
             "push_interval_steps": push_interval_steps,
+            "recover_time": jp.array(0.0),
+            "stepping": jp.array(0.0),
         }
         metrics = {f"reward/{k}": jp.zeros(()) for k in self._config.reward_config.scales.keys()}
         metrics["swing_peak"] = jp.zeros(())
@@ -297,6 +306,14 @@ class CoguJoystick(mjx_env.MjxEnv):
         obs = self._get_obs(data, state.info, contact)
         done = self._get_termination(data)
 
+        # stepping: asked to move, or recovering from a push the IMU felt (v7)
+        rc = cfg.recover
+        disturbed = (jp.linalg.norm(self.get_gyro(data)[:2]) > rc.gyro) | \
+            (self.get_upvector(data)[2] < jp.cos(rc.tilt))
+        disturbed = disturbed & rc.enable
+        state.info["recover_time"] = jp.where(disturbed, rc.hold, jp.maximum(state.info["recover_time"] - self.dt, 0.0))
+        state.info["stepping"] = ((jp.linalg.norm(state.info["command"]) > 0.05) |
+                                  (state.info["recover_time"] > 0.0)).astype(jp.float32)
         rewards = self._get_reward(data, action, state.info, done, first_contact, contact)
         rewards = {k: v * cfg.reward_config.scales[k] for k, v in rewards.items()}
         reward = jp.clip(sum(rewards.values()) * self.dt, 0.0, 10000.0)
@@ -307,8 +324,7 @@ class CoguJoystick(mjx_env.MjxEnv):
         phase_tp1 = state.info["phase"] + state.info["phase_dt"]
         phase_tp1 = jp.fmod(phase_tp1 + jp.pi, 2 * jp.pi) - jp.pi
         if cfg.stand_phase_reset:                     # standing: hold the start phase (both feet down)
-            moving = jp.linalg.norm(state.info["command"]) > 0.05
-            phase_tp1 = jp.where(moving, phase_tp1, jp.array([0.0, jp.pi]))
+            phase_tp1 = jp.where(state.info["stepping"] > 0, phase_tp1, jp.array([0.0, jp.pi]))
         state.info["phase"] = phase_tp1
         state.info["last_last_act"] = state.info["last_act"]
         state.info["last_act"] = action
@@ -374,7 +390,7 @@ class CoguJoystick(mjx_env.MjxEnv):
         cmd = info["command"]
         qpos = data.qpos[7:]
         # standing undisturbed: a zero command AND a slow body (a pushed robot may step to recover)
-        still = (jp.linalg.norm(cmd) < 0.05) & \
+        still = (info["stepping"] == 0) & \
             (jp.linalg.norm(self.get_local_linvel(data)[:2]) < self._config.reward_config.still_speed)
         still = still.astype(jp.float32)          # a raw bool in the reward slows the XLA-CPU step (see termination)
         return {
@@ -387,11 +403,11 @@ class CoguJoystick(mjx_env.MjxEnv):
             "torques": jp.sum(jp.abs(data.actuator_force)),
             "action_rate": jp.sum(jp.square(action - info["last_act"])),
             "action_acc": jp.sum(jp.square(action - 2.0 * info["last_act"] + info["last_last_act"])),
-            "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact, cmd),
+            "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact, info["stepping"]),
             "feet_slip": self._cost_feet_slip(data, contact),
-            "feet_phase": self._reward_feet_phase(data, info["phase"], cmd),
-            "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, cmd),
-            "feet_planted": self._cost_feet_planted(info["feet_contact_time"], cmd),
+            "feet_phase": self._reward_feet_phase(data, info["phase"], info["stepping"]),
+            "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, info["stepping"]),
+            "feet_planted": self._cost_feet_planted(info["feet_contact_time"], info["stepping"]),
             # cast: a raw bool here makes XLA-CPU compile a ~3x slower step (measured)
             "termination": done.astype(jp.float32),
             "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * still,
@@ -416,27 +432,27 @@ class CoguJoystick(mjx_env.MjxEnv):
         feet_vel = data.sensordata[self._feet_linvel_adr][..., :2]
         return jp.sum(jp.linalg.norm(feet_vel, axis=-1) * contact)
 
-    def _reward_feet_air_time(self, air_time, first_contact, cmd):
+    def _reward_feet_air_time(self, air_time, first_contact, stepping):
         t_min, t_max = self._config.reward_config.feet_air_time_range
         reward = jp.sum(jp.clip((air_time - t_min) * first_contact, max=t_max - t_min))
-        return reward * (jp.linalg.norm(cmd) > 0.05)
+        return reward * stepping
 
-    def _cost_feet_planted(self, contact_time, cmd):
+    def _cost_feet_planted(self, contact_time, stepping):
         """Seconds (capped at 1) each foot has stayed on the floor beyond max_contact_time, while asked to move.
         Without it the v3 policy kept the right foot planted and tapped the left one."""
         over = jp.clip(contact_time - self._config.reward_config.max_contact_time, 0.0, 1.0)
-        return jp.sum(over) * (jp.linalg.norm(cmd) > 0.05)
+        return jp.sum(over) * stepping
 
-    def _cost_feet_height(self, swing_peak, first_contact, cmd):
+    def _cost_feet_height(self, swing_peak, first_contact, stepping):
         """At each touchdown, how far the swing apex stayed below max_foot_height (squared, relative)."""
         short = jp.clip(1.0 - swing_peak / self._config.reward_config.max_foot_height, 0.0, None)
-        return jp.sum(jp.square(short) * first_contact) * (jp.linalg.norm(cmd) > 0.05)
+        return jp.sum(jp.square(short) * first_contact) * stepping
 
-    def _reward_feet_phase(self, data, phase, cmd):
+    def _reward_feet_phase(self, data, phase, stepping):
         foot_z = data.site_xpos[self._feet_site_id][..., -1]
         rz = gait.get_rz(phase, swing_height=self._config.reward_config.max_foot_height)
         err = jp.sum(jp.square(foot_z - rz))
-        return jp.exp(-err / 0.0005) * (jp.linalg.norm(cmd) > 0.05)
+        return jp.exp(-err / 0.0005) * stepping
 
     # --------------------------------------------------------------- command
     def sample_command(self, rng: jax.Array) -> jax.Array:
