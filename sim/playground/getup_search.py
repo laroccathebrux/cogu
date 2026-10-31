@@ -60,8 +60,10 @@ STAND_HEIGHT = 0.18            # m, pelvis (rest: 0.205)
 class Sim:
     """One model variant, its lying start states, and rollouts of a keyframe sequence."""
 
-    def __init__(self, xml: Path, friction: float = 1.0, force: float = 1.0, objective: str = "getup"):
+    def __init__(self, xml: Path, friction: float = 1.0, force: float = 1.0, objective: str = "getup",
+                 tail: list | None = None):
         self.objective = objective
+        self.tail = tail or []                       # fixed keyframes after the searched ones (catch, then slow path)
         self.m = mujoco.MjModel.from_xml_path(str(xml))
         self.m.geom_friction[:, 0] *= friction
         self.m.actuator_forcerange[:] *= force
@@ -70,6 +72,8 @@ class Sim:
         self.rest_q, self.rest_ctrl = key.qpos.copy(), key.ctrl.copy()
         self.lo, self.hi = self.m.actuator_ctrlrange.T.copy()
         self.dt = self.m.opt.timestep
+        self._floor = self.m.geom("floor").id
+        self._soles = {self.m.geom("L_foot_sole").id, self.m.geom("R_foot_sole").id}
         self._starts: dict[str, tuple] = {}
 
     def start(self, pose: str):
@@ -134,26 +138,42 @@ class Sim:
     def rollout(self, pose: str, targets, durations, frame_cb=None) -> dict:
         self.start(pose)
         best_up = self.up()
+        best_land = -1.0
         saturated = steps = 0
-        schedule = [(t, dur) for t, dur in zip(targets, durations)] + [(self.rest_ctrl, HOLD)]
-        for target, dur in schedule:
+        schedule = [(t, dur) for t, dur in zip(targets, durations)] + list(self.tail) + [(self.rest_ctrl, HOLD)]
+        catch_at = len(targets) if self.tail else None
+        up_catch = on_feet = 0.0
+        for n, (target, dur) in enumerate(schedule):
             self.d.ctrl[:] = target
             for _ in range(int(round(dur / self.dt))):
                 mujoco.mj_step(self.m, self.d)
                 steps += 1
                 best_up = max(best_up, self.up())
+                if self.objective == "land" and self.d.ncon:   # upright while only the soles touch the floor
+                    touching = {g for c in self.d.contact[: self.d.ncon] for g in c.geom} - {self._floor}
+                    if touching and touching <= self._soles:
+                        best_land = max(best_land, self.up())
                 saturated += np.any(np.abs(self.d.actuator_force) >= 0.99 * self.m.actuator_forcerange[:, 1])
                 if frame_cb is not None:
                     frame_cb(self)
+            if n == catch_at:                         # end of the catch hold: upright, and on the feet only?
+                up_catch = self.up()
+                touching = {g for c in self.d.contact[: self.d.ncon] for g in c.geom} - {self._floor}
+                on_feet = float(bool(touching) and touching <= self._soles)
         up, height = self.up(), float(self.d.qpos[2])
         posture = float(np.exp(-np.sum((self.d.qpos[7:] - self.rest_q[7:]) ** 2) / 0.5))
         speed = float(np.linalg.norm(self.d.qvel[:6]))
         success = up > UPRIGHT_COS and height > STAND_HEIGHT and speed < 0.3
         score = (((1.0 + up) / 2.0) ** 2 + min(height / 0.2, 1.0) + 0.5 * posture
                  + 0.3 * ((1.0 + best_up) / 2.0) ** 2 + 2.0 * success)
+        if self.objective == "catch":                 # the searched keyframes only have to land the catch
+            score += 2.0 * ((1.0 + up_catch) / 2.0) ** 2 + 1.0 * on_feet
+        if self.objective == "land":                  # how upright it gets standing on the feet alone
+            score = best_land + 0.2 * best_up
         if self.objective == "peak":                  # how upright it gets at all, whatever happens after
             score = best_up
         return dict(score=score, success=success, up=up, height=height, speed=speed, peak_up=best_up,
+                    up_catch=up_catch, on_feet=on_feet, land_up=best_land,
                     saturated=saturated / max(steps, 1), seconds=float(np.sum(durations)))
 
 
@@ -161,9 +181,29 @@ class Sim:
 _SIMS: list[Sim] = []
 
 
-def _init_worker(xml: str, objective: str):
+TAIL_FROM = 70.0               # deg: the catch pose is the path's pose at this tilt (80° falls back onto the bubble)
+
+
+def load_tail(path: str | None, catch_hold: float = 0.8, step: float = 0.4, from_tilt: float = TAIL_FROM) -> list:
+    """A quasi-static path from getup_static.py -> fixed keyframes: hold its pose at `from_tilt` (the catch),
+    then walk it every 10° of tilt."""
+    if not path:
+        return []
+    poses = [p for p in json.loads(Path(path).read_text()) if abs(p["tilt"]) <= from_tilt]
+    tail, last = [], None
+    for i, p in enumerate(poses):
+        if i and i != len(poses) - 1 and abs(p["tilt"] - last) < 10:
+            continue
+        legs = np.radians([0.0, 0.0, *p["q"]])
+        tail.append((np.concatenate([legs, legs]), catch_hold if not tail else step))
+        last = p["tilt"]
+    return tail
+
+
+def _init_worker(xml: str, objective: str, tail_path: str | None):
     global _SIMS
-    _SIMS = [Sim(Path(xml), f, s, objective) for f, s in VARIANTS]
+    tail = load_tail(tail_path)
+    _SIMS = [Sim(Path(xml), f, s, objective, tail) for f, s in VARIANTS]
 
 
 def _evaluate(task):
@@ -241,7 +281,7 @@ def search(pool, pose: str, k: int, generations: int, popsize: int, seed: int, n
             print(f"  [{pose} K={k} seed={seed}] gen {g:3d}  best {best[0]:.2f}  "
                   f"up {' '.join(f'{v['up']:+.2f}' for v in r)}  "
                   f"h {' '.join(f'{v['height'] * 1000:.0f}' for v in r)} mm  "
-                  f"peak up {max(v['peak_up'] for v in r):+.2f}  ok {sum(v['success'] for v in r)}/{len(r)}  sigma {es.sigma:.2f}  {time.time() - t0:.0f} s",
+                  f"peak up {max(v['peak_up'] for v in r):+.2f}  on feet {' '.join(f"{v['land_up']:+.2f}" for v in r)}  catch {' '.join(f"{v['up_catch']:+.2f}{'F' if v['on_feet'] else ''}" for v in r)}  ok {sum(v['success'] for v in r)}/{len(r)}  sigma {es.sigma:.2f}  {time.time() - t0:.0f} s",
                   flush=True)
         if all(v["success"] for v in best[2]) and es.sigma < 0.05:
             break
@@ -318,7 +358,9 @@ def main(argv=None) -> int:
     ap.add_argument("--popsize", type=int, default=36)
     ap.add_argument("--seeds", type=int, default=2)
     ap.add_argument("--xml", default=str(GETUP_XML))
-    ap.add_argument("--objective", choices=("getup", "peak"), default="getup",
+    ap.add_argument("--tail", metavar="JSON", help="a getup_static.py path played after the searched keyframes "
+                    "(catch, then slow path to rest); use with --objective catch")
+    ap.add_argument("--objective", choices=("getup", "peak", "catch", "land"), default="getup",
                     help="peak: only how upright the robot gets at any moment (is the gap crossable at all?)")
     ap.add_argument("--sigma", type=float, default=0.6)
     ap.add_argument("--init", metavar="JSON", help="start the search from a saved sequence (extra keyframes hold `rest`)")
@@ -339,7 +381,7 @@ def main(argv=None) -> int:
     nu = Sim(Path(args.xml)).m.nu
     poses = list(POSES) if args.pose == "all" else [args.pose]
     summary = {}
-    with mp.get_context("spawn").Pool(args.workers, _init_worker, (args.xml, args.objective)) as pool:
+    with mp.get_context("spawn").Pool(args.workers, _init_worker, (args.xml, args.objective, args.tail)) as pool:
         for pose in poses:
             best_pose = (-np.inf, None, None, None)
             for k in args.keyframes:
@@ -361,9 +403,13 @@ def main(argv=None) -> int:
                     break
             score, x, results, k = best_pose
             targets, durations = Sim(Path(args.xml)).decode(x, k)
+            tail = load_tail(args.tail)               # saved with the tail, so --replay plays the whole thing
+            if tail:
+                targets = np.vstack([targets] + [t for t, _ in tail])
+                durations = np.concatenate([durations, [dur for _, dur in tail]])
             ok = sum(r["success"] for r in results)
             summary[pose] = f"{ok}/{len(results)} variants up, {k} keyframes, {durations.sum():.2f} s"
-            (OUT_DIR / f"{pose}{'_peak' if args.objective == 'peak' else ''}.json").write_text(json.dumps(dict(
+            (OUT_DIR / f"{pose}{'' if args.objective == 'getup' else '_' + args.objective}{'_' + Path(args.xml).stem if args.xml != str(GETUP_XML) else ''}.json").write_text(json.dumps(dict(
                 pose=pose, score=score, success=[bool(r["success"]) for r in results],
                 targets=targets.round(4).tolist(), durations=durations.round(3).tolist()), indent=1))
             summary[pose] += f", peak up_z {min(r['peak_up'] for r in results):+.2f} (worst variant)"

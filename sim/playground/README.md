@@ -107,8 +107,39 @@ uv run python sim/playground/getup_search.py --objective peak            # o mai
 uv run mjpython sim/playground/getup_search.py --view build/getup_search/*_peak.json
 ```
 
-Decisão aberta: v1 sem se levantar sozinho (detecta a queda e pede ajuda) ou testar o calcanhar de 30–45 mm, que
-muda o pé (chaves táteis, O-ring) e pede retreinar a marcha.
+### Calcanhar e impulso + equilíbrio (2026-10-31, segunda rodada)
+
+`getup_static.py` mapeia, numa grade (inclinação × quadril × joelho × tornozelo, as duas pernas iguais), todas
+as poses em que o robô fica parado sobre seus apoios, e procura caminhos entre poses vizinhas. A "janela de
+pouso" é a maior inclinação em que só os pés seguram o robô e de onde um caminho lento leva a `rest`:
+
+| Calcanhar (sola mais longa para trás) | 0 mm (atual) | 30 mm | 45 mm | 60 mm |
+|---|---|---|---|---|
+| janela de pouso (estática) | 55° | 65° | 75° | 80° |
+
+No simulador dinâmico a janela é ~10° menor: com 60 mm, posto sobre os pés a 70° (ou 60°), o caminho lento em
+rampa (0,5–2 s por 10°) o deixa em pé, pelve a 203 mm; a 80° ele cai de volta na bolha. **Nenhum calcanhar (até
+90 mm) dá caminho lento a partir de deitado**: passar o peso da bolha para os pés pediria os pés atrás e acima do
+quadril (~−120° de quadril; a junta vai a −85°). Então levantar = um impulso que pousa nos pés + um controle que
+segura.
+
+- O impulso existe: buscas com objetivo "em pé só nos pés" (`--objective land`) chegam a up_z 0,62 (52°) no
+  robô atual; com o calcanhar de 60 mm o corpo passa por up_z 0,89 (27°) por um instante. Força sobra.
+- Sequência fixa não segura (o momento certo varia com atrito e servo). Passar para a v7 no pouso
+  (`getup_handoff.py`) também não: a v7 foi treinada até 60° de inclinação e nunca viu um pouso desses.
+
+Próximo passo: uma política de levantar treinada com esses pousos como ponto de partida (currículo: começar sobre
+os pés a 30–60°, depois do impulso, depois deitado), comparando o pé atual com o calcanhar de 45 mm antes de mudar
+o pé no CAD.
+
+```bash
+uv run python sim/playground/getup_static.py --xml build/mjcf/variants/heel_45.xml --out build/getup_search/path_heel45.json
+uv run python sim/playground/getup_search.py --pose back --objective land --keyframes 3
+uv run python sim/playground/getup_handoff.py build/getup_search/back_land.json
+```
+
+(As variantes `build/mjcf/variants/heel_*.xml` são o MJCF de get-up com a caixa da sola alongada para trás,
+geradas com `MjSpec`; o CAD do pé não mudou.)
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
