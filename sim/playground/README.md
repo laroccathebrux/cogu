@@ -65,7 +65,7 @@ de 0,2 a 0,6 m/s, parado e andando a 0,15 m/s; conta quantos de 40 o robô aguen
   Checkpoint em `checkpoints/cogu_walk_v7` (o download do Colab tinha chegado em `build/`; refeito o teste de
   empurrão aqui: 21/40, igual ao Colab). Vídeo: `docs/renders/sim_walk_v7.mp4`.
 
-## Levantar (em andamento, 2026-10-31)
+## Levantar (2026-10-31)
 
 `cogu_getup.py` + `train.py --env getup` + modelo `cogu_lower_body_mjx_getup.xml` (bolha, tambor e pernas tocam
 o chão) + `getup_eval.py` + `play.py --getup` (troca sozinho entre levantar e andar). Ainda não levanta:
@@ -77,9 +77,38 @@ o chão) + `getup_eval.py` + `play.py --getup` (troca sozinho entre levantar e a
   estado estável que paga razoável, e o horizonte do desconto (0,97: ~0,7 s) é curto para uma manobra de
   segundos.
 
-Próximo passo sugerido: antes de mais RL, um estudo de viabilidade — otimizar (CMA-ES, CPU) uma sequência curta
-de poses a partir das posições deitado de frente, de costas e de lado. Sem braços, só as pernas e a bolha em
-forma de ovo podem levantar o robô; se nenhuma sequência funcionar, o RL também não vai achar.
+### Estudo de viabilidade (2026-10-31): com as pernas atuais, não
+
+`getup_search.py` (CPU, ~60 ms por simulação, 9 núcleos) deita o robô de frente, de costas ou de lado e procura
+com CMA-ES uma sequência de 3–9 poses (alvos em toda a faixa das juntas + duração de cada uma), avaliada em três
+variações de atrito e força do servo. Resultados:
+
+- **Busca aberta: zero levantadas.** 10 800 sequências aleatórias e todas as rodadas de CMA-ES (4 posições,
+  3–9 poses, com e sem partida de sequências boas) terminam deitadas. O impulso mais forte que existe deixa a
+  pelve, por um instante, a ~53–58° do vertical (up_z 0,52–0,60) e o robô cai de volta.
+- **Análise quase estática** (para cada inclinação do corpo, existe pose das pernas em que o centro de massa
+  fica sobre os apoios, sem passar do stall?): em pé só nos pés, ele se equilibra até ~50° inclinado para a frente
+  ou ~60° para trás; apoiado em bolha + pés, só a partir de ~80°. **Entre ~60° e ~75° nenhuma combinação de apoios
+  (pés, bolha, tambor, coxas ou canelas) segura o robô** — levantar exigiria arremessar o corpo por essa faixa e
+  pará-lo em equilíbrio, e a busca não achou como. Torque não é o limite: as poses de apoio pedem 0,1–0,5 N·m.
+- **A ideia de encolher as pernas e escorar na bolha** funciona até a metade: de costas, puxando as coxas para trás,
+  ele ergue o quadril acima da bolha (até ~110°, bolha + pés, ~0,2 N·m) — vídeo `build/getup_search/back_propped_heel30.mp4`.
+  De frente não dá: o quadril só vai 15° para a frente (a carcaça da coxa encosta na viga do quadril). A volta
+  para o vertical passa pela faixa sem apoio.
+- **O que fecha a faixa:** um **calcanhar** mais longo. Com a sola 30 mm mais comprida para trás, há pose só nos
+  pés até 75° e bolha + pés a partir de 78° (de costas); 45 mm dá folga. Joelho até −25° ou tornozelo até ±80°
+  (faixas que o CAD mede como livres) sozinhos não fecham. Mesmo com o calcanhar, a sequência aberta ainda não
+  levanta: falta a troca de apoio (a bolha sai do chão quando o peso passa para os pés), que provavelmente pede
+  realimentação (RL), não sequência fixa.
+
+```bash
+uv run python sim/playground/getup_search.py --pose back --keyframes 5 --generations 300
+uv run python sim/playground/getup_search.py --objective peak            # o mais em pé que cada posição alcança
+uv run mjpython sim/playground/getup_search.py --view build/getup_search/*_peak.json
+```
+
+Decisão aberta: v1 sem se levantar sozinho (detecta a queda e pede ajuda) ou testar o calcanhar de 30–45 mm, que
+muda o pé (chaves táteis, O-ring) e pede retreinar a marcha.
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
