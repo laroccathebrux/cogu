@@ -100,8 +100,12 @@ def default_config() -> config_dict.ConfigDict:
         # v7: a push the IMU feels (gyro or tilt over a threshold) runs the gait clock and the stepping rewards for
         # `hold` s even on a zero command, so a pushed robot can step to recover. v6 only stopped charging for a
         # lifted foot while the body moved, and never found the recovery step (feet stayed 55 mm apart)
-        recover=config_dict.create(enable=True, gyro=0.6, tilt=0.15, hold=1.0,    # rad/s, rad (~9°), s
-                                   push_credit=2.0),   # s; v9: see "stepping_reward" in step()
+        # v10: `latch` — a detection opens one window of `hold` s that the robot's own steps can't extend, then the
+        # detector rests for `cooldown` s. Before, every step of a pushed robot kept the gyro over 0.6 rad/s, which
+        # kept the clock running: after a 0.4 m/s push v7 and v9 marched in place for good
+        recover=config_dict.create(enable=True, gyro=0.6, tilt=0.15, hold=1.5,    # rad/s, rad (~9°), s; v9: 1.0
+                                   push_credit=2.0,    # s; v9: see "stepping_reward" in step()
+                                   latch=True, cooldown=1.0),
         stand_phase_reset=True,       # zero command: the gait phase holds its start value (both feet down);
                                       # checkpoints up to v4 kept it running (config_for_checkpoint)
         command_resample_steps=250,   # 5 s
@@ -138,6 +142,9 @@ def config_for_checkpoint(ckpt: Union[str, Path]) -> config_dict.ConfigDict:
                 cfg.stand_phase_reset = False
             if "recover" not in saved:
                 cfg.recover.enable = False
+            elif "latch" not in saved["recover"]:     # v7–v9: every detection restarted the window
+                cfg.recover.latch = False
+                cfg.recover.hold = saved["recover"].get("hold", 1.0)
             return cfg
     cfg = default_config()
     cfg.action_filter_alpha = 1.0
@@ -263,6 +270,7 @@ class CoguJoystick(mjx_env.MjxEnv):
             "stepping": jp.array(0.0),
             "stepping_reward": jp.array(0.0),
             "push_credit": jp.array(0.0),
+            "recover_cooldown": jp.array(0.0),
         }
         metrics = {f"reward/{k}": jp.zeros(()) for k in self._config.reward_config.scales.keys()}
         metrics["swing_peak"] = jp.zeros(())
@@ -315,7 +323,14 @@ class CoguJoystick(mjx_env.MjxEnv):
         disturbed = (jp.linalg.norm(self.get_gyro(data)[:2]) > rc.gyro) | \
             (self.get_upvector(data)[2] < jp.cos(rc.tilt))
         disturbed = disturbed & rc.enable
-        state.info["recover_time"] = jp.where(disturbed, rc.hold, jp.maximum(state.info["recover_time"] - self.dt, 0.0))
+        rt, cd = state.info["recover_time"], state.info["recover_cooldown"]
+        if rc.latch:
+            start = disturbed & (rt == 0.0) & (cd == 0.0)
+            state.info["recover_cooldown"] = jp.where((rt > 0.0) & (rt <= self.dt), rc.cooldown,
+                                                      jp.maximum(cd - self.dt, 0.0))
+        else:
+            start = disturbed
+        state.info["recover_time"] = jp.where(start, rc.hold, jp.maximum(rt - self.dt, 0.0))
         commanded = jp.linalg.norm(state.info["command"]) > 0.05
         state.info["stepping"] = (commanded | (state.info["recover_time"] > 0.0)).astype(jp.float32)
         # v9: the gait clock follows the IMU (as on the robot), but the stepping rewards and the standing exemption

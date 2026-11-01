@@ -292,6 +292,13 @@ passo. Andar de lado continua fraco (um terço do pedido).
 de 15 para 34 g impressos e o robô de 1282 para 1320 g. A v9 no modelo do CAD: 1,27 m / 1,75 m / 376°, 38 de 40
 empurrões. `variants.py` e `foot_study.py` agora somam ao pé novo (a coluna "atual" da tabela acima é o pé antigo).
 
+**Marchando depois do empurrão.** Parada, um empurrão de 0,4 m/s ou mais deixava a v9 (e a v7) marchando no lugar para
+sempre: os passos de recuperação mantêm o giro acima de 0,6 rad/s, cada leitura renovava a janela de 1 s e o relógio
+da marcha nunca parava. Detector novo (`recover.latch`, v10): cada empurrão abre **uma** janela de 1,5 s que os passos
+não renovam, e depois o detector descansa 1 s. A v9 com ele, sem retreino (`play.py --latch`): para de dar passos
+1,6–1,7 s depois de qualquer empurrão parado (0,2 a 0,6 m/s, quatro direções) e continua segurando 38 de 40. Os
+checkpoints até a v9 seguem com o detector antigo, a não ser com `--latch`; o env já treina com o novo.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,

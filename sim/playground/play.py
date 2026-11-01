@@ -100,6 +100,7 @@ class Sim2Sim:
         self.filtered = np.zeros(self.m.nu)
         self.phase = np.array([0.0, np.pi])
         self.recover_time = 0.0
+        self.recover_cooldown = 0.0
         self.history = [self.default_pose.copy() for _ in range(self.delay + 1)]
         self.obs = self._obs()
 
@@ -138,10 +139,14 @@ class Sim2Sim:
         rc = self.cfg.recover
         gyro = self.d.sensordata[self.gyro_adr:self.gyro_adr + 2]
         up_z = self.d.site_xmat[self.imu].reshape(3, 3)[2, 2]
-        if rc.enable and (np.linalg.norm(gyro) > rc.gyro or up_z < np.cos(rc.tilt)):
-            self.recover_time = rc.hold
+        disturbed = rc.enable and (np.linalg.norm(gyro) > rc.gyro or up_z < np.cos(rc.tilt))
+        rt, cd = self.recover_time, self.recover_cooldown
+        if rc.get("latch", False):                       # v10: one window per push, then the detector rests
+            start = disturbed and rt == 0.0 and cd == 0.0
+            self.recover_cooldown = rc.cooldown if 0.0 < rt <= self.dt else max(cd - self.dt, 0.0)
         else:
-            self.recover_time = max(self.recover_time - self.dt, 0.0)
+            start = disturbed
+        self.recover_time = rc.hold if start else max(rt - self.dt, 0.0)
         stepping = np.linalg.norm(self.command) > 0.05 or self.recover_time > 0.0
         if self.cfg.get("stand_phase_reset", False) and not stepping:
             self.phase = np.array([0.0, np.pi])          # standing: hold the start phase, as in training
@@ -164,6 +169,7 @@ class Sim2Sim:
         self.filtered = (q - self.default_pose) / self.cfg.action_scale
         self.phase = np.array([0.0, np.pi])
         self.recover_time = 0.0
+        self.recover_cooldown = 0.0
         self.history = [q.copy() for _ in range(self.delay + 1)]
         self.obs = self._obs()
 
@@ -392,6 +398,8 @@ def parse_args(argv=None):
     ap.add_argument("--delay", type=int, default=0, help="actuator latency in 20 ms steps (training: 0–2)")
     ap.add_argument("--noise", type=float, default=0.0, help="observation noise level (training: 1.0)")
     ap.add_argument("--speed", type=float, default=1.0, help="viewer playback speed")
+    ap.add_argument("--latch", action="store_true",
+                    help="v7–v9 checkpoints: use the v10 push detector (one 1.5 s window per push, then 1 s of rest)")
     ap.add_argument("--follow", default=None, metavar="DIR",
                     help="watch a training run: reload the newest checkpoint in DIR as it appears")
     return ap.parse_args(argv)
@@ -423,6 +431,9 @@ def main(argv=None) -> int:
     xml = args.xml or str(cogu_getup.GETUP_XML if args.getup else cogu_env.DEFAULT_XML)
     print(f"checkpoint: {ckpt}\nmodel:      {xml}")
     sim = Sim2Sim(Path(xml), ckpt, gait_freq=args.gait_freq, delay_steps=args.delay, noise=args.noise)
+    if args.latch:
+        rc, new = sim.cfg.recover, cogu_env.default_config().recover
+        rc.latch, rc.hold, rc.cooldown = True, new.hold, new.cooldown
     sim.command[:] = (args.vx, args.vy, args.wz)
     getup = GetupPolicy(sim, latest_checkpoint(Path(args.getup).resolve())) if args.getup else None
     if args.headless:
