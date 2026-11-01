@@ -299,6 +299,26 @@ não renovam, e depois o detector descansa 1 s. A v9 com ele, sem retreino (`pla
 1,6–1,7 s depois de qualquer empurrão parado (0,2 a 0,6 m/s, quatro direções) e continua segurando 38 de 40. Os
 checkpoints até a v9 seguem com o detector antigo, a não ser com `--latch`; o env já treina com o novo.
 
+**Marcha v10: pé do CAD e detector novo.** `checkpoints/cogu_walk_v10/`: 30 M passos no Colab (T4) a partir da v9, no
+modelo exportado do CAD (pé de 34 g, robô de 1320 g), com `recover.latch`. Vídeo: `docs/renders/sim_walk_v10.mp4`.
+Sim2sim no modelo do CAD, 8 s a partir do repouso:
+
+| Medida | v9 (+ `--latch`) | **v10** |
+|---|---|---|
+| 0,15 m/s: distância / velocidade | 1,27 m / 0,16 | **1,30 m / 0,17** |
+| 0,25 m/s em 8 s / 0,30 m/s | 1,75 m / 0,24 | **1,80 m / 0,25** |
+| ré 0,10 m/s | 0,11 | 0,10 |
+| de lado ±0,10 m/s | 0,03 / 0,04 | 0,03 / 0,02 |
+| giro ±0,6 / 1,0 rad/s | 0,64 / −0,61 / 0,97 | 0,63 / −0,60 / 0,93 |
+| giro 8 s a 0,8 rad/s | 376° | 369° |
+| empurrões | 38/40 | **38/40** |
+| parado: pé no ar | 0 % | 0 % |
+| parado, empurrão 0,4–0,6 m/s: para de dar passos | 1,6–1,7 s | 1,6 s (cai só a 0,6 para a frente) |
+| marcha a 0,15: pé / no ar / escorregão | 23 mm / 0,27 s / 0,016 | 22 mm / 0,27 s / **0,007** |
+
+A v10 é a marcha atual: igual à v9 com `--latch`, um pouco mais rápida, escorrega metade, e o detector com que ela
+treinou é o que ela usa. Andar de lado continua fraco.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
