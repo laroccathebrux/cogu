@@ -33,7 +33,7 @@ from rollout import latest_checkpoint  # noqa: E402
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("checkpoint")
-    ap.add_argument("--walk", default=str(HERE / "checkpoints" / "cogu_walk_v5"),
+    ap.add_argument("--walk", default=str(HERE / "checkpoints" / "cogu_walk_v10"),
                     help="walking checkpoint (only to build the simulator; it does not run)")
     ap.add_argument("--xml", default=str(cogu_getup.GETUP_XML))
     ap.add_argument("--trials", type=int, default=20)

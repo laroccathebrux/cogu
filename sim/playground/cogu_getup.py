@@ -15,6 +15,13 @@ the model is the get-up MJX variant (`cogu_lower_body_mjx_getup.xml`), where the
 leg links touch the floor.
 
 Observation (36): IMU gyro and gravity direction, joint positions (from rest) and velocities, last action.
+
+v3 (2026-11-01), `reference`: the policy corrects a scripted catch instead of starting from nothing. Each step the
+pelvis tilt (from the IMU's gravity) picks a pose on the catch path of `getup_starts.py` (the slow path from the
+edge of the catch window to `rest`, face up and face down), `lead` degrees towards upright; the reference walks to
+it at no more than `rate` rad/s per joint, and the target is the reference plus the action × `residual_scale` (1 rad).
+Zero action is `getup_reference.py`'s catch (36 % upright from the landings of the foot study, 23 % for `rest`
+alone). The reference minus `rest` is added to the observation (46).
 """
 
 from __future__ import annotations
@@ -87,6 +94,14 @@ def default_config() -> config_dict.ConfigDict:
             upright_cos=0.95,          # up_z above this counts as upright (~18°)
             posture_sigma=0.5,
         ),
+        reference=config_dict.create(
+            enable=True,
+            lead=10.0,                 # deg towards upright (getup_reference / foot_study: lead 10, rate 1)
+            rate=1.0,                  # rad/s per joint
+            residual_scale=1.0,        # rad: target = reference + action × this (a throw needs big ones)
+            tilts=[],                  # catch path (deg), filled from the starts file and saved with the config
+            legs=[],                   # hip pitch / knee / ankle (deg) at each tilt
+        ),
         impl="jax",
         naconmax=None,
         njmax=None,
@@ -122,6 +137,25 @@ class CoguGetup(cogu_env.CoguJoystick):
         self._starts_feet = jp.array(np.flatnonzero(table["kind"] == 0))
         self._starts_throw = jp.array(np.flatnonzero(table["kind"] == 1))
         assert self._starts_feet.size and self._starts_throw.size, f"{path}: no feet or no throw states"
+        ref = self._config.reference
+        if ref.enable:
+            if not ref.tilts:
+                assert "catch_tilt" in table, f"{path}: no catch path; rebuild it with getup_starts.py"
+                ref.tilts, ref.legs = table["catch_tilt"].tolist(), table["catch_q"].tolist()
+            self._ref_tilts = jp.array(ref.tilts)
+            legs = np.radians(np.array(ref.legs))
+            self._ref_legs = jp.array(np.column_stack([np.zeros((len(ref.tilts), 2)), legs]))   # yaw, roll = 0
+
+    def reference_step(self, data: mjx.Data, prev: jax.Array) -> jax.Array:
+        """The scripted catch: from the IMU's tilt, the next reference (as getup_reference.Reference)."""
+        ref = self._config.reference
+        g = self.get_gravity(data)                     # body frame; up_z = -g_z, the pelvis x axis rises when g_x < 0
+        tilt = jp.degrees(jp.arccos(jp.clip(-g[2], -1.0, 1.0))) * jp.where(g[0] <= 0.0, 1.0, -1.0)
+        want = jp.sign(tilt) * jp.maximum(jp.abs(tilt) - ref.lead, 0.0)
+        leg = jax.vmap(lambda col: jp.interp(want, self._ref_tilts, col), in_axes=1)(self._ref_legs)
+        goal = jp.concatenate([leg, leg])
+        step = ref.rate * self.dt
+        return prev + jp.clip(goal - prev, -step, step)
 
     # ----------------------------------------------------------------- reset
     def _random_fallen_qpos(self, rng: jax.Array) -> jax.Array:
@@ -179,7 +213,8 @@ class CoguGetup(cogu_env.CoguJoystick):
         info = {
             "rng": rng,
             "last_act": jp.zeros(self._nu),
-            "action_filtered": jp.clip((start - self._default_pose) / self._config.action_scale, -1.0, 1.0),
+            "action_filtered": self._start_filtered(start),
+            "ref": start,
             "ctrl_history": jp.tile(start, (n_delay + 1, 1)),
             "action_delay": jax.random.randint(k_delay, (), 0, n_delay + 1),
             "start_kind": start_kind,
@@ -193,6 +228,12 @@ class CoguGetup(cogu_env.CoguJoystick):
         reward, done = jp.zeros(2)
         return mjx_env.State(data, obs, reward, done, metrics, info)
 
+    def _start_filtered(self, q: jax.Array) -> jax.Array:
+        """Filter state that holds the joints where they are (with the reference: zero, the reference starts there)."""
+        if self._config.reference.enable:
+            return jp.zeros(self._nu)
+        return jp.clip((q - self._default_pose) / self._config.action_scale, -1.0, 1.0)
+
     # ------------------------------------------------------------------ step
     def step(self, state: mjx_env.State, action: jax.Array) -> mjx_env.State:
         cfg = self._config
@@ -203,15 +244,19 @@ class CoguGetup(cogu_env.CoguJoystick):
             # dragged the new start to the floor. The policy learned to lie down even from standing (local, 0.2 M)
             fresh = state.info["steps"] == 0
             q = state.data.qpos[7:]
-            start_filtered = jp.clip((q - self._default_pose) / cfg.action_scale, -1.0, 1.0)
-            state.info["action_filtered"] = jp.where(fresh, start_filtered, state.info["action_filtered"])
+            state.info["action_filtered"] = jp.where(fresh, self._start_filtered(q), state.info["action_filtered"])
+            state.info["ref"] = jp.where(fresh, q, state.info["ref"])
             state.info["ctrl_history"] = jp.where(fresh, jp.tile(q, (cfg.max_action_delay_steps + 1, 1)),
                                                   state.info["ctrl_history"])
             state.info["last_act"] = jp.where(fresh, jp.zeros(self._nu), state.info["last_act"])
         a = cfg.action_filter_alpha
         filtered = a * action + (1.0 - a) * state.info["action_filtered"]
         state.info["action_filtered"] = filtered
-        targets = jp.clip(self._default_pose + filtered * cfg.action_scale, self._lowers, self._uppers)
+        if cfg.reference.enable:
+            state.info["ref"] = self.reference_step(state.data, state.info["ref"])
+            targets = jp.clip(state.info["ref"] + filtered * cfg.reference.residual_scale, self._lowers, self._uppers)
+        else:
+            targets = jp.clip(self._default_pose + filtered * cfg.action_scale, self._lowers, self._uppers)
         hist = jp.roll(state.info["ctrl_history"], 1, axis=0).at[0].set(targets)
         data = mjx_env.step(self.mjx_model, state.data, hist[state.info["action_delay"]], self.n_substeps)
         state.info["ctrl_history"] = hist
@@ -241,15 +286,17 @@ class CoguGetup(cogu_env.CoguJoystick):
 
         gyro, gravity = self.get_gyro(data), self.get_gravity(data)
         q, qd = data.qpos[7:], data.qvel[6:]
+        ref = [info["ref"] - self._default_pose] if self._config.reference.enable else []
         state = jp.hstack([
             noisy(gyro, k1, noise.scales.gyro),
             noisy(gravity, k2, noise.scales.gravity),
             noisy(q, k3, noise.scales.joint_pos) - self._default_pose,
             noisy(qd, k4, noise.scales.joint_vel),
             info["last_act"],
+            *ref,
         ])
         privileged = jp.hstack([
-            gyro, gravity, q - self._default_pose, qd, info["last_act"],
+            gyro, gravity, q - self._default_pose, qd, info["last_act"], *ref,
             data.qpos[2:3], self.get_local_linvel(data), self.get_global_angvel(data), data.actuator_force,
         ])
         return {"state": state, "privileged_state": privileged}

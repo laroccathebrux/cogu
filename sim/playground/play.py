@@ -187,6 +187,8 @@ def getup_config(ckpt: Path):
             break
     cfg.update(saved)
     cfg.full_range_actions = "action_scale" not in saved
+    if "reference" not in saved:                     # v1–v2: no scripted catch under the policy
+        cfg.reference.enable = False
     return cfg
 
 
@@ -202,12 +204,18 @@ class GetupPolicy:
         full = self.cfg.full_range_actions
         self.centre = (sim.lowers + sim.uppers) / 2 if full else sim.default_pose
         self.half = (sim.uppers - sim.lowers) / 2 if full else self.cfg.action_scale
-        self.priv = jp.zeros(53)
+        ref = self.cfg.reference
+        if ref.enable:                                   # v3: the policy corrects a scripted catch (cogu_getup)
+            self.ref_tilts = np.array(ref.tilts, float)
+            legs = np.radians(np.array(ref.legs, float))
+            self.ref_legs = np.column_stack([np.zeros((len(legs), 2)), legs])
         self.calm = 0.0
 
     def start(self):
         q = self.sim.d.qpos[7:].copy()
-        self.filtered = np.clip((q - self.centre) / self.half, -1.0, 1.0)
+        self.ref = q.copy()
+        held = np.clip((q - self.centre) / self.half, -1.0, 1.0)
+        self.filtered = np.zeros_like(q) if self.cfg.reference.enable else held   # the target starts where q is
         self.last_act = np.zeros(self.sim.m.nu)
         self.history = [q.copy() for _ in range(self.sim.delay + 1)]
         self.calm = 0.0
@@ -216,16 +224,34 @@ class GetupPolicy:
         s, d = self.sim, self.sim.d
         gyro = d.sensordata[s.gyro_adr:s.gyro_adr + 3].copy()
         gravity = d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
-        return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act]).astype(np.float32)
+        ref = [self.ref - s.default_pose] if self.cfg.reference.enable else []
+        return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act, *ref]
+                              ).astype(np.float32)
+
+    def _reference_step(self):
+        """cogu_getup.CoguGetup.reference_step: the scripted catch's next reference, from the IMU's tilt."""
+        s, ref = self.sim, self.cfg.reference
+        g = s.d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
+        tilt = np.degrees(np.arccos(np.clip(-g[2], -1.0, 1.0))) * (1.0 if g[0] <= 0.0 else -1.0)
+        want = np.sign(tilt) * max(abs(tilt) - ref.lead, 0.0)
+        leg = np.array([np.interp(want, self.ref_tilts, self.ref_legs[:, j]) for j in range(5)])
+        step = ref.rate * s.dt
+        self.ref = self.ref + np.clip(np.concatenate([leg, leg]) - self.ref, -step, step)
 
     def step(self):
         s = self.sim
         self.key, k = jax.random.split(self.key)
-        action, _ = self.policy({"state": jp.asarray(self._obs()), "privileged_state": self.priv}, k)
+        obs = self._obs()
+        priv = jp.zeros(obs.size + 17)                 # the critic's input: unused by the policy
+        action, _ = self.policy({"state": jp.asarray(obs), "privileged_state": priv}, k)
         action = np.clip(np.asarray(action), -1.0, 1.0)   # as CoguGetup.step (the policy may not be squashed)
         a = self.cfg.action_filter_alpha
         self.filtered = a * action + (1.0 - a) * self.filtered
-        target = np.clip(self.centre + self.filtered * self.half, s.lowers, s.uppers)
+        if self.cfg.reference.enable:
+            self._reference_step()
+            target = np.clip(self.ref + self.filtered * self.cfg.reference.residual_scale, s.lowers, s.uppers)
+        else:
+            target = np.clip(self.centre + self.filtered * self.half, s.lowers, s.uppers)
         self.history = [target] + self.history[:-1]
         s.d.ctrl[:] = self.history[s.delay]
         for _ in range(s.n_substeps):

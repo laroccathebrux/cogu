@@ -213,6 +213,20 @@ Antes de treinar por imitação, testes no MuJoCo normal do que limita o levanta
   `rest`: 15 % e 23 %). As poses "estáveis" do mapa têm 5 mm de margem: o pé tem 65 × 52 mm e o centro de massa está
   a 191 mm do chão. A base de apoio é pequena demais para pegar o pouso com folga.
 
+### Levantar v3: o RL corrige a pegada roteirizada (2026-11-01)
+
+No pé do CAD (130 × 67 mm). Em vez de começar do zero, a política soma uma correção a um controle roteirizado
+(`cogu_getup.py`, `reference`): a cada passo a inclinação da pelve (pela gravidade do IMU) escolhe uma pose no
+caminho de pegada que `getup_starts.py` agora salva junto das partidas (o caminho estático lento da borda da janela
+até `rest`, de costas e de bruços, terminando no próprio `rest`), 10° à frente; a referência anda até ela a no
+máximo 1 rad/s por junta, e o alvo é a referência + ação × 1 rad. A referência entra na observação (46). Ação zero =
+a pegada de `getup_reference.py`. `play.py` / `getup_eval.py` refazem a mesma conta em numpy (`getup_eval` agora passa
+para a marcha v10).
+
+No passo 0 (só a referência), sobre os pés: 42 % do tempo em pé no treino e **12 de 30** no `getup_eval` (a v2 do
+zero: 1 de 20 no pé antigo, 6 de 20 com o calcanhar). Do impulso e deitado, 0: a referência só pega, o impulso tem que
+vir do RL. 1 M passos locais não mudam isso (12 de 30; 0 e 0).
+
 ### Estudo do pé (2026-11-01)
 
 `foot_study.py`: para cada sola (calcanhar para trás, ponta para a frente, largura para fora, em mm; `variants.py`),

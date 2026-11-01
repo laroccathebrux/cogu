@@ -15,6 +15,10 @@ policy that only starts lying never sees a landing, so the get-up env also start
   vertical (up_z > 0.3): rising, in the air or landing. The lying part before is what the env's drops give.
 
 The env samples them (`start_mix`) and adds noise to the velocities.
+
+The file also holds the catch path (`catch_tilt` deg, `catch_q` hip pitch / knee / ankle deg): the slow paths from
+the edge of the catch window to `rest`, face up (+ tilt) and face down (- tilt), joined through upright. The env's
+reference (`cogu_getup`, "reference") walks it by feel, as `getup_reference.py` does.
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ MIN_TILT = 15.0                # deg: below this the tilted-`rest` starts alread
 PER_SIDE = 800                 # feet poses kept per side
 THROW_UP = 0.3                 # up_z above which a throw snapshot is kept
 THROW_EVERY = 0.02             # s
+REST_LEGS = (-35.0, 70.0, -35.0)   # deg, hip pitch / knee / ankle of the `rest` keyframe
 
 
 def default_path(xml: str | Path) -> Path:
@@ -95,6 +100,18 @@ def feet_states(xml: str, rng: np.random.Generator, maps: dict | None = None) ->
     return out
 
 
+def catch_path(maps: dict) -> tuple[np.ndarray, np.ndarray]:
+    """-> (tilts deg ascending, leg poses deg (n, 3)): getup_static's slow paths from each side's catch window."""
+    nodes = {}
+    for _, stable, nxt in maps.values():
+        window = getup_static.catch_window(stable, nxt)
+        if window is not None:
+            nodes.update({n["tilt"]: n["q"] for n in getup_static.path_from(window, stable, nxt)})
+    nodes[0.0] = list(REST_LEGS)        # end in `rest` itself (the path's upright node is within 10° of it)
+    tilts = sorted(nodes)
+    return np.array(tilts, float), np.array([nodes[t] for t in tilts], float)
+
+
 def throw_states(xml: str) -> list[tuple]:
     out = []
     for path in sorted(SEQUENCES.glob("*.json")):
@@ -125,17 +142,20 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     rng = np.random.default_rng(args.seed)
     print(f"start states for {Path(args.xml).name}")
-    states = feet_states(args.xml, rng) + throw_states(args.xml)
+    maps = {side: getup_static.stable_map(args.xml, side, max_tilt=90.0) for side in ("back", "front")}
+    states = feet_states(args.xml, rng, maps) + throw_states(args.xml)
+    catch_tilt, catch_q = catch_path(maps)
     qpos, qvel, kind, tilt = (np.array(x) for x in zip(*states))
     out = Path(args.out) if args.out else default_path(args.xml)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out, qpos=qpos.astype(np.float32), qvel=qvel.astype(np.float32), kind=kind.astype(np.int32),
-             tilt=tilt.astype(np.float32))
+             tilt=tilt.astype(np.float32), catch_tilt=catch_tilt, catch_q=catch_q)
     for k, name in enumerate(("feet", "throw")):
         sel = kind == k
         if sel.any():
             print(f"{name}: {sel.sum()} states, tilt {tilt[sel].min():.0f}°-{tilt[sel].max():.0f}° "
                   f"(median {np.median(tilt[sel]):.0f}°)")
+    print(f"catch path: {len(catch_tilt)} poses, {catch_tilt.min():+.0f}° to {catch_tilt.max():+.0f}°")
     print(f"-> {out}")
     return 0
 
