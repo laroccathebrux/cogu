@@ -188,6 +188,31 @@ e deitado, 0 de 20 nos dois. O mesmo que os treinos locais de 2 M passos (5 e 3 
 - O calcanhar de 45 mm segura melhor as partidas sobre os pés (30 % vs 4 % no fim, 6 vs 1 de 20), coerente com a
   janela estática maior (até 75°). Não muda nada no impulso nem deitado.
 
+### Força, pescoço, joelhos e pegada roteirizada (2026-11-01)
+
+Antes de treinar por imitação, testes no MuJoCo normal do que limita o levantar. Variantes por `variants.py`
+(`--servo`, `--neck`, `--knee-max`, além de `--heel`; o CAD não muda). Ver os treinos no viewer:
+`uv run mjpython sim/playground/getup_eval.py CKPT --starts feet throw drop --view`.
+
+- **Força não é o limite.** Busca de impulso de costas (`getup_search.py --objective land`, 3 poses, 120 gerações),
+  o quanto o robô pousa em pé só sobre os pés (up_z): atual 0,56–0,58; servo ×1,5 0,56; ×2 0,61–0,64; pescoço
+  ±60° com a massa do celular (250 g) 0,52–0,55; calcanhar 45 mm 0,57–0,58; calcanhar 45 + pescoço 0,65–0,69. Os
+  impulsos salvos saturam algum servo em 30 % do tempo, mas servos mais fortes não pousam mais em pé.
+- **Joelho até 130°** (o CAD permite 95°: as abas da canela batem na coxa) não muda o mapa estático: janela de
+  pouso de 55° (pé atual) e 75° (calcanhar 45), sem apoio entre 60° e 75° no pé atual.
+- **De joelhos não é atalho.** Separando o mapa estático em ilhas de poses ligadas: existem poses de joelhos estáveis
+  (de bruços, canelas + pés, 5–35°, pelve até 190 mm), mas isoladas: de bruços o mais perto de deitado que segura é
+  75–80° (tambor + pés), um salto de ~40° até a ilha de joelhos e de ~35° até em pé sobre os pés.
+- **Levantar de costas pede pernas assimétricas.** Os melhores impulsos usam uma perna a −82° de quadril e a outra
+  a −6°, com o hip roll a ±35°: o robô sai meio de lado, rolando na borda da bolha. Com as duas pernas iguais
+  (`getup_reference.py --search`, impulso + pegada, 600 candidatos × 3 variações) o pico é up_z 0,24 e nada levanta.
+  O mapa estático, que só considera pernas iguais, não vê esse caminho.
+- **A pegada é o gargalo.** `getup_reference.py`: um controle roteirizado que, partindo das poses sobre os pés de
+  `getup_starts`, lê a inclinação e anda devagar pelo caminho estático até `rest` (de costas e de bruços). Melhor
+  ajuste (1 rad/s, 10° à frente): **17 %** em pé no pé atual, **40 %** com o calcanhar de 45 mm (ficar parado em
+  `rest`: 15 % e 23 %). As poses "estáveis" do mapa têm 5 mm de margem: o pé tem 65 × 52 mm e o centro de massa está
+  a 191 mm do chão. A base de apoio é pequena demais para pegar o pouso com folga.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
