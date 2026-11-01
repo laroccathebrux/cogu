@@ -284,7 +284,7 @@ corrigido. Vídeo: `docs/renders/sim_walk_v9.mp4`. Mesmas medidas da tabela acim
 | marcha a 0,15: pé / no ar / escorregão | 27 mm / 0,28 s / 0,010 | 23 mm / 0,27 s / 0,013 | 23 mm / 0,27 s / 0,016 |
 
 A v9 fica parada como a v7, anda e gira tão bem ou melhor que a v8 e segura os mesmos 37 de 40 empurrões. O
-`gait_metrics.py` ainda mede 3,6 Hz no pé novo (23 passos em 8 s, como a v7 no pé atual a 1,7 Hz): é a medida, não o
+`gait_metrics.py` ainda mede 3,6 Hz no pé novo (23 passos em 8 s, como a v7 no pé atual a 1,7 Hz): provavelmente a medida, não o
 passo. Andar de lado continua fraco (um terço do pedido).
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
