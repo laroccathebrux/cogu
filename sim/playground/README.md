@@ -166,6 +166,28 @@ uv run python sim/playground/train.py --env getup --xml build/mjcf/variants/heel
 uv run python sim/playground/getup_eval.py CKPT --xml build/mjcf/variants/heel_45.xml --starts feet throw drop
 ```
 
+**Resultado (2026-11-01): não aprendeu a levantar.** 50 M passos no Colab para cada pé (T4, 4096 robôs, 74 min,
+11,3 mil passos/s), do zero, `cogu_getup_v2` e `cogu_getup_v2_heel45` (só em `build/checkpoints/`, não
+versionados). % do tempo em pé por partida, no treino:
+
+| Partida | Pé atual, 0 → 50 M | Calcanhar 45 mm, 0 → 50 M |
+|---|---|---|
+| Em pé | 100 → 90 | 100 → 100 |
+| Inclinado em `rest` | 9 → 1 | 9 → 1 |
+| Sobre os pés inclinado | 33 → 4 | 25 → 30 (máx. 33) |
+| Meio do impulso | 0 → 0 | 0 → 0 |
+| Deitado após queda | 0 → 0 | 0 → 0 |
+
+`getup_eval.py`, 20 tentativas no MuJoCo normal: sobre os pés 1 de 20 (pé atual) e 6 de 20 (calcanhar); do impulso
+e deitado, 0 de 20 nos dois. O mesmo que os treinos locais de 2 M passos (5 e 3 de 20 sobre os pés).
+
+- O conserto do ruído funcionou para ficar em pé (o pé atual ainda escorrega para 65–90 % no fim), mas nenhuma
+  política ficou melhor que a ação zero: as partidas sobre os pés já davam 25–33 % no passo 0, ficando parado.
+- Com ruído 0,05 a exploração não descobre o impulso + pegada; com ruído maior o robô em pé cai (tabela acima).
+  Mais passos do mesmo PPO não resolvem: levantar precisa de uma referência de movimento.
+- O calcanhar de 45 mm segura melhor as partidas sobre os pés (30 % vs 4 % no fim, 6 vs 1 de 20), coerente com a
+  janela estática maior (até 75°). Não muda nada no impulso nem deitado.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
