@@ -239,6 +239,27 @@ com piso escorregadio + servo fraco) e a marcha v7 **sem retreinar** (8 s, e os 
 - **A marcha precisa ser retreinada para qualquer pé novo:** a v7 tropeça com a sola mais longa (só calcanhar: cai
   em 2 s). Isso mede a política, não o pé.
 
+**Marcha v8 no pé 130 × 67 mm (45, 20, 15).** `checkpoints/cogu_walk_v8_foot/`: 30 M passos no Colab (T4, 27 min) a partir da
+v7, no modelo de marcha com essa sola (`walk_heel45_toe20_width15.xml`). Sim2sim, 8 s a partir do repouso:
+
+| Medida | v7 no pé atual | v7 no pé novo | **v8 no pé novo** |
+|---|---|---|---|
+| 0,15 m/s: distância / velocidade | 1,37 m / 0,18 | 0,95 m / 0,12 | 1,23 m / **0,16** |
+| 0,25 / 0,30 m/s | 0,23 / 0,24 | 0,14 / 0,15 | 0,22 / 0,23 |
+| ré 0,10 m/s | 0,09 | 0,02 | 0,09 |
+| de lado ±0,10 m/s | 0,03 / 0,04 | 0,02 / 0,04 | 0,03 / 0,03 |
+| giro ±0,6 / 1,0 rad/s | 0,56 / −0,57 / 0,86 | 0,47 / −0,34 / 0,78 | **0,58 / −0,60 / 0,87** |
+| giro 8 s a 0,8 rad/s | 330° | 278° | **348°** |
+| empurrões | 21/40 | 38/40 | **37/40** |
+| parado: pé no ar | 0 % | 0 % | **46 %** |
+| marcha a 0,15: pé / no ar / escorregão | 27 mm / 0,28 s / 0,010 | 13 mm / 0,06 s / 0,125 | 23 mm / 0,27 s / 0,013 |
+
+- **O pé novo anda tão bem quanto o atual** (velocidades e giro iguais ou melhores, a deriva lateral da v7 sumiu) e
+  **segura quase o dobro de empurrões** (37 contra 21).
+- **Defeito novo: parado, ela marcha no lugar** (pé no ar 46 % do tempo com comando zero; a v7 fica de pé). Também
+  a frequência medida pelo `gait_metrics.py` subiu para 3,6 Hz (mesmos 23 passos em 8 s; tremor 0,02). O retreino
+  tem que voltar a cobrar `stand_still` / `feet_air_still` mais forte, como na v5.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
