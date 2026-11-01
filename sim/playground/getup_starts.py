@@ -46,14 +46,15 @@ def default_path(xml: str | Path) -> Path:
     return OUT_DIR / f"{Path(xml).stem}.npz"
 
 
-def feet_states(xml: str, rng: np.random.Generator) -> list[tuple]:
+def feet_states(xml: str, rng: np.random.Generator, maps: dict | None = None) -> list[tuple]:
+    """`maps`: {side: getup_static.stable_map(xml, side, max_tilt=90.0)} if already computed."""
     m = mujoco.MjModel.from_xml_path(xml)
     d = mujoco.MjData(m)
     sim = getup_search.Sim(Path(xml))                 # for _place_on_floor
     floor, soles = m.geom("floor").id, {m.geom("L_foot_sole").id, m.geom("R_foot_sole").id}
     out = []
     for side in ("back", "front"):
-        _, stable, nxt = getup_static.stable_map(xml, side, max_tilt=90.0)
+        _, stable, nxt = maps[side] if maps else getup_static.stable_map(xml, side, max_tilt=90.0)
         poses = [key for key in nxt if stable[key][0] == ["foot_sole"] and abs(key[0]) >= MIN_TILT]
         if not poses:
             continue

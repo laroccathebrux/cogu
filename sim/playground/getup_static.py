@@ -130,6 +130,21 @@ def stable_map(xml: str, side: str = "back", tilt_step: float = 5.0, joint_step:
     return tilts, stable, nxt
 
 
+def catch_window(stable: dict, nxt: dict):
+    """The most tilted pose on the feet alone from which a slow path leads to `rest` (None if there is none)."""
+    on_feet = [key for key in nxt if stable[key][0] == ["foot_sole"]]
+    return max(on_feet, key=lambda key: (abs(key[0]), -stable[key][1]), default=None)
+
+
+def path_from(start, stable: dict, nxt: dict) -> list[dict]:
+    """The slow path from `start` to `rest`, as written by --out."""
+    path = []
+    while start is not None:
+        path.append(dict(tilt=start[0], q=list(start[1:]), supports=stable[start][0]))
+        start = nxt[start]
+    return path
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--xml", default=str(GETUP_XML))
@@ -152,8 +167,7 @@ def main(argv=None) -> int:
         else:
             print(f"  {t:+6.1f}°      0")
 
-    on_feet = [key for key in nxt if stable[key][0] == ["foot_sole"]]
-    window = max(on_feet, key=lambda key: (abs(key[0]), -stable[key][1]), default=None)
+    window = catch_window(stable, nxt)
     lying = [key for key in nxt if abs(key[0]) >= 85 and "bubble_hull" in stable[key][0]]
     if window is not None:
         print(f"\ncatch window: standing on the feet alone at up to {abs(window[0]):.1f}°, a slow path leads to "

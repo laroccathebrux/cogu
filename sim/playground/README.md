@@ -213,6 +213,32 @@ Antes de treinar por imitação, testes no MuJoCo normal do que limita o levanta
   `rest`: 15 % e 23 %). As poses "estáveis" do mapa têm 5 mm de margem: o pé tem 65 × 52 mm e o centro de massa está
   a 191 mm do chão. A base de apoio é pequena demais para pegar o pouso com folga.
 
+### Estudo do pé (2026-11-01)
+
+`foot_study.py`: para cada sola (calcanhar para trás, ponta para a frente, largura para fora, em mm; `variants.py`),
+a janela de pouso estática, a pegada roteirizada a partir das poses sobre os pés daquela sola (80 pousos, nominal e
+com piso escorregadio + servo fraco) e a marcha v7 **sem retreinar** (8 s, e os 40 empurrões de `push_recovery.py`).
+
+| Pé (calcanhar, ponta, largura) | Sola (mm) | Janela costas / bruços | Pegada (costas / bruços) | Escorregadio + fraco | Marcha 0,15 / 0,25 / giro 8 s | Empurrões |
+|---|---|---|---|---|---|---|
+| atual | 65 × 52 | 55° / 35° | 25 % (31 / 18) | 30 % | 1,37 m / 1,78 m / 330° | 21/40 |
+| 45, 0, 0 | 110 × 52 | 75° / 35° | 42 % (54 / 33) | 44 % | cai 2,1 s / cai 1,5 s / 302° | 14/40 |
+| 30, 20, 0 | 115 × 52 | 65° / 45° | 39 % (52 / 24) | 41 % | 0,13 m / 0,24 m / −82° | 30/40 |
+| 45, 20, 0 | 130 × 52 | 75° / 45° | 36 % (57 / 19) | 36 % | 0,08 m / cai 6,6 s / 229° | 30/40 |
+| 60, 20, 0 | 145 × 52 | 80° / 45° | 39 % (52 / 24) | 40 % | 0,41 m / cai 4,1 s / 145° | 29/40 |
+| 45, 40, 0 | 150 × 52 | 75° / 55° | 35 % (57 / 16) | 35 % | 0,85 m / 0,74 m / −18° | 30/40 |
+| **45, 20, 15** | **130 × 67** | 75° / 45° | 36 % (57 / 19) | 36 % | 0,95 m / 0,33 m / 278° | **38/40** |
+| 60, 40, 15 | 165 × 67 | 80° / 55° | 35 % (55 / 13) | 36 % | 0,59 m / 0,73 m / 225° | 37/40 |
+
+- **A janela cresce com o pé:** de costas, de 55° para 75–80° com o calcanhar; de bruços, de 35° para 45–55° com
+  a ponta.
+- **A pegada roteirizada sobe de 25 % para 35–42 %** (de costas chega a 52–57 %). Cada sola é testada com os pousos
+  dela, e um pé maior inclui pousos mais inclinados; por isso não sobe mais. Esse roteiro é cru (anda pelo caminho
+  estático sem olhar velocidade): a pegada boa tem que vir do RL, e o pé maior dá a ela mais margem.
+- **Empurrões:** a sola mais larga segura 37–38 de 40 com a mesma política v7 (atual: 21).
+- **A marcha precisa ser retreinada para qualquer pé novo:** a v7 tropeça com a sola mais longa (só calcanhar: cai
+  em 2 s). Isso mede a política, não o pé.
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
