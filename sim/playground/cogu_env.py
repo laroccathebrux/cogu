@@ -78,8 +78,8 @@ def default_config() -> config_dict.ConfigDict:
                 feet_planted=-1.0,        # new: a foot on the floor > max_contact_time while walking (v3 limped)
                 # misc
                 termination=-1.0,
-                stand_still=-1.0,         # v4: -0.3 — it kept marching in place on a zero command
-                feet_air_still=-1.0,      # new: a foot off the floor on a zero command
+                stand_still=-2.0,         # v4: -0.3, v5–v8: -1.0 — it kept marching in place on a zero command
+                feet_air_still=-3.0,      # a foot off the floor on a zero command; v5–v8: -1.0
                 dof_pos_limits=-1.0,
                 pose=-0.3,
             ),
@@ -100,10 +100,12 @@ def default_config() -> config_dict.ConfigDict:
         # v7: a push the IMU feels (gyro or tilt over a threshold) runs the gait clock and the stepping rewards for
         # `hold` s even on a zero command, so a pushed robot can step to recover. v6 only stopped charging for a
         # lifted foot while the body moved, and never found the recovery step (feet stayed 55 mm apart)
-        recover=config_dict.create(enable=True, gyro=0.6, tilt=0.15, hold=1.0),   # rad/s, rad (~9°), s
+        recover=config_dict.create(enable=True, gyro=0.6, tilt=0.15, hold=1.0,    # rad/s, rad (~9°), s
+                                   push_credit=2.0),   # s; v9: see "stepping_reward" in step()
         stand_phase_reset=True,       # zero command: the gait phase holds its start value (both feet down);
                                       # checkpoints up to v4 kept it running (config_for_checkpoint)
         command_resample_steps=250,   # 5 s
+        zero_command_prob=0.2,        # v8: 0.1
         lin_vel_x=[-0.10, 0.30],
         lin_vel_y=[-0.10, 0.10],
         ang_vel_yaw=[-1.0, 1.0],
@@ -259,6 +261,8 @@ class CoguJoystick(mjx_env.MjxEnv):
             "push_interval_steps": push_interval_steps,
             "recover_time": jp.array(0.0),
             "stepping": jp.array(0.0),
+            "stepping_reward": jp.array(0.0),
+            "push_credit": jp.array(0.0),
         }
         metrics = {f"reward/{k}": jp.zeros(()) for k in self._config.reward_config.scales.keys()}
         metrics["swing_peak"] = jp.zeros(())
@@ -312,8 +316,16 @@ class CoguJoystick(mjx_env.MjxEnv):
             (self.get_upvector(data)[2] < jp.cos(rc.tilt))
         disturbed = disturbed & rc.enable
         state.info["recover_time"] = jp.where(disturbed, rc.hold, jp.maximum(state.info["recover_time"] - self.dt, 0.0))
-        state.info["stepping"] = ((jp.linalg.norm(state.info["command"]) > 0.05) |
-                                  (state.info["recover_time"] > 0.0)).astype(jp.float32)
+        commanded = jp.linalg.norm(state.info["command"]) > 0.05
+        state.info["stepping"] = (commanded | (state.info["recover_time"] > 0.0)).astype(jp.float32)
+        # v9: the gait clock follows the IMU (as on the robot), but the stepping rewards and the standing exemption
+        # need a real push in the last push_credit s. v8 learned to wobble its own gyro over the threshold at once,
+        # which kept the clock running and paid it to march in place forever on a zero command
+        pushed = jp.linalg.norm(push) > 0.0
+        state.info["push_credit"] = jp.where(pushed, rc.push_credit,
+                                             jp.maximum(state.info["push_credit"] - self.dt, 0.0))
+        state.info["stepping_reward"] = (commanded | ((state.info["recover_time"] > 0.0) &
+                                                     (state.info["push_credit"] > 0.0))).astype(jp.float32)
         rewards = self._get_reward(data, action, state.info, done, first_contact, contact)
         rewards = {k: v * cfg.reward_config.scales[k] for k, v in rewards.items()}
         reward = jp.clip(sum(rewards.values()) * self.dt, 0.0, 10000.0)
@@ -390,7 +402,7 @@ class CoguJoystick(mjx_env.MjxEnv):
         cmd = info["command"]
         qpos = data.qpos[7:]
         # standing undisturbed: a zero command AND a slow body (a pushed robot may step to recover)
-        still = (info["stepping"] == 0) & \
+        still = (info["stepping_reward"] == 0) & \
             (jp.linalg.norm(self.get_local_linvel(data)[:2]) < self._config.reward_config.still_speed)
         still = still.astype(jp.float32)          # a raw bool in the reward slows the XLA-CPU step (see termination)
         return {
@@ -403,11 +415,11 @@ class CoguJoystick(mjx_env.MjxEnv):
             "torques": jp.sum(jp.abs(data.actuator_force)),
             "action_rate": jp.sum(jp.square(action - info["last_act"])),
             "action_acc": jp.sum(jp.square(action - 2.0 * info["last_act"] + info["last_last_act"])),
-            "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact, info["stepping"]),
+            "feet_air_time": self._reward_feet_air_time(info["feet_air_time"], first_contact, info["stepping_reward"]),
             "feet_slip": self._cost_feet_slip(data, contact),
-            "feet_phase": self._reward_feet_phase(data, info["phase"], info["stepping"]),
-            "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, info["stepping"]),
-            "feet_planted": self._cost_feet_planted(info["feet_contact_time"], info["stepping"]),
+            "feet_phase": self._reward_feet_phase(data, info["phase"], info["stepping_reward"]),
+            "feet_height": self._cost_feet_height(info["swing_peak"], first_contact, info["stepping_reward"]),
+            "feet_planted": self._cost_feet_planted(info["feet_contact_time"], info["stepping_reward"]),
             # cast: a raw bool here makes XLA-CPU compile a ~3x slower step (measured)
             "termination": done.astype(jp.float32),
             "stand_still": jp.sum(jp.abs(qpos - self._default_pose)) * still,
@@ -461,7 +473,7 @@ class CoguJoystick(mjx_env.MjxEnv):
         vx = jax.random.uniform(k1, minval=c.lin_vel_x[0], maxval=c.lin_vel_x[1])
         vy = jax.random.uniform(k2, minval=c.lin_vel_y[0], maxval=c.lin_vel_y[1])
         wz = jax.random.uniform(k3, minval=c.ang_vel_yaw[0], maxval=c.ang_vel_yaw[1])
-        return jp.where(jax.random.bernoulli(k4, p=0.1), jp.zeros(3), jp.hstack([vx, vy, wz]))
+        return jp.where(jax.random.bernoulli(k4, p=c.zero_command_prob), jp.zeros(3), jp.hstack([vx, vy, wz]))
 
     # ------------------------------------------------------------- accessors
     @property
