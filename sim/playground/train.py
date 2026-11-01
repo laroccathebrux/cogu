@@ -46,6 +46,7 @@ from mujoco_playground import wrapper  # noqa: E402
 import cogu_env  # noqa: E402
 import cogu_getup  # noqa: E402
 from randomize import make_domain_randomizer  # noqa: E402
+from rollout import latest_checkpoint  # noqa: E402
 
 REPO_ROOT = HERE.parents[1]
 
@@ -96,7 +97,8 @@ def parse_args(argv=None):
     ap.add_argument("--no-domain-randomization", action="store_true")
     ap.add_argument("--start-mix", type=float, nargs=5, default=None,
                     help="getup: start shares (stand tilt feet throw drop); default: the env config's")
-    ap.add_argument("--restore", default=None, help="checkpoint step dir to warm-start from")
+    ap.add_argument("--restore", default=None, help="checkpoint to warm-start from: a step dir, or a run / published "
+                    "folder (its newest step)")
     ap.add_argument("--devices", type=int, default=1,
                     help="virtual CPU devices for brax's pmap (experimental: >1 segfaults on macOS with "
                          "jax 0.11 / MJX; ignored on GPU). num_envs must be a multiple of it")
@@ -190,7 +192,7 @@ def main(argv=None) -> int:
         # eval robots fell over — the printed "upright" was ~1 % while the deterministic policy stood ~25 %
         deterministic_eval=(args.env == "getup"),
         save_checkpoint_path=str(out),
-        restore_checkpoint_path=args.restore,
+        restore_checkpoint_path=str(latest_checkpoint(Path(args.restore).resolve())) if args.restore else None,
     )
     make_inference_fn, params, metrics = train_fn(environment=env, eval_env=eval_env)
     del make_inference_fn
