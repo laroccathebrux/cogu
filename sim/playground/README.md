@@ -257,8 +257,35 @@ v7, no modelo de marcha com essa sola (`walk_heel45_toe20_width15.xml`). Sim2sim
 - **O pé novo anda tão bem quanto o atual** (velocidades e giro iguais ou melhores, a deriva lateral da v7 sumiu) e
   **segura quase o dobro de empurrões** (37 contra 21).
 - **Defeito novo: parado, ela marcha no lugar** (pé no ar 46 % do tempo com comando zero; a v7 fica de pé). Também
-  a frequência medida pelo `gait_metrics.py` subiu para 3,6 Hz (mesmos 23 passos em 8 s; tremor 0,02). O retreino
-  tem que voltar a cobrar `stand_still` / `feet_air_still` mais forte, como na v5.
+  a frequência medida pelo `gait_metrics.py` subiu para 3,6 Hz (mesmos 23 passos em 8 s; tremor 0,02).
+
+**Por que a v8 marchava no lugar.** Desde a v7, um empurrão que o IMU sente (giro > 0,6 rad/s ou 9° de inclinação)
+liga o relógio da marcha e as recompensas de passo por 1 s, mesmo com comando zero. A v8 aprendeu a se empurrar: com
+comando zero ela balança o corpo nos primeiros 40 ms, o giro passa de 0,6 rad/s e o modo de recuperação fica ligado
+para sempre (100 % do tempo no sim2sim, pé no ar 88 %; a v7 não passa de 0,34 rad/s parada). Correção no env
+(v9): o relógio continua seguindo o IMU, como no robô, mas as recompensas de passo e a isenção de `stand_still` /
+`feet_air_still` só valem até 2 s depois de um empurrão de verdade (`recover.push_credit`). Também `stand_still`
+−1 → −2, `feet_air_still` −1 → −3 e comando zero em 20 % dos sorteios (era 10 %). Retreinar a v8 com isso não
+desfez o vício em 1 M passos (local); partindo da v7 ele não aparece.
+
+**Marcha v9 no pé novo.** `checkpoints/cogu_walk_v9_foot/`: 30 M passos no Colab (T4) a partir da v7, com o env
+corrigido. Vídeo: `docs/renders/sim_walk_v9.mp4`. Mesmas medidas da tabela acima:
+
+| Medida | v7 no pé atual | v8 no pé novo | **v9 no pé novo** |
+|---|---|---|---|
+| 0,15 m/s: distância / velocidade | 1,37 m / 0,18 | 1,23 m / 0,16 | **1,27 m / 0,16** |
+| 0,25 / 0,30 m/s | 0,23 / 0,24 | 0,22 / 0,23 | 0,22 / 0,24 |
+| ré 0,10 m/s | 0,09 | 0,09 | **0,11** |
+| de lado ±0,10 m/s | 0,03 / 0,04 | 0,03 / 0,03 | 0,03 / 0,04 |
+| giro ±0,6 / 1,0 rad/s | 0,56 / −0,57 / 0,86 | 0,58 / −0,60 / 0,87 | **0,64 / −0,61 / 0,97** |
+| giro 8 s a 0,8 rad/s | 330° | 348° | **374°** |
+| empurrões | 21/40 | 37/40 | **37/40** |
+| parado: pé no ar | 0 % | 46 % | **0 %** |
+| marcha a 0,15: pé / no ar / escorregão | 27 mm / 0,28 s / 0,010 | 23 mm / 0,27 s / 0,013 | 23 mm / 0,27 s / 0,016 |
+
+A v9 fica parada como a v7, anda e gira tão bem ou melhor que a v8 e segura os mesmos 37 de 40 empurrões. O
+`gait_metrics.py` ainda mede 3,6 Hz no pé novo (23 passos em 8 s, como a v7 no pé atual a 1,7 Hz): é a medida, não o
+passo. Andar de lado continua fraco (um terço do pedido).
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
