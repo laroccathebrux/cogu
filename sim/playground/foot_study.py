@@ -3,10 +3,11 @@
     uv run python sim/playground/foot_study.py                          # the default set of feet
     uv run python sim/playground/foot_study.py --feet 0,0,0 45,20,0 --walk sim/playground/checkpoints/cogu_walk_v7
 
-Getting up fails at the catch: the poses where the feet alone hold the tilted robot have ~5 mm of margin (a 65 × 52
-mm sole under a centre of mass 191 mm up), so a landing with any speed tips over (README, "Força, pescoço, joelhos e
-pegada roteirizada"). Each foot is HEEL,TOE,WIDTH in mm added to the sole box (`variants.py`; heel backwards, toe
-forwards, width outwards), on the get-up model for the get-up measures and on the walking model for the walking ones:
+Getting up fails at the catch: the poses where the feet alone hold the tilted robot have ~5 mm of margin (the old
+65 × 52 mm sole under a centre of mass 191 mm up), so a landing with any speed tips over (README, "Força, pescoço,
+joelhos e pegada roteirizada"). Each foot is HEEL,TOE,WIDTH in mm added to the sole box (`variants.py`; heel
+backwards, toe forwards, width outwards), on the get-up model for the get-up measures and on the walking model for the
+walking ones. Since 2026-11-01 the CAD foot is the 45,20,15 sole of this study, so the feet now add to that one:
 
 - window: the most tilted pose, face up / face down, where the feet alone hold the robot and a slow path leads to
   `rest` (`getup_static.py`);

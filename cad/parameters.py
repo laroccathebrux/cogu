@@ -228,11 +228,16 @@ PELVIS_BOSS_X = 8.0             # close to the yaw axes so the cover's front bat
 # ---------------------------------------------------------------------------
 # Foot
 # ---------------------------------------------------------------------------
-FOOT_LENGTH = 65.0
-FOOT_WIDTH = 52.0               # brief said ~45; must cover the 51 mm ankle fork (horn plate .. bearing plate)
+# 2026-11-01: 65 × 52 -> 130 × 67 mm (45 mm more heel, 20 mm more toe, 15 mm wider outwards). The foot study
+# (sim/playground/foot_study.py, README "Estudo do pé") widened the tilt the feet alone can catch from 55° to 75°
+# face up and 35° to 45° face down, and walking v9 on it holds 37 of 40 pushes (21 on the old foot).
+FOOT_LENGTH = 130.0
+FOOT_WIDTH = 67.0               # must cover the 51 mm ankle fork (horn plate .. bearing plate)
+FOOT_OUTSET = 7.5               # sole centre outboard of the fork centre line: the extra width grows outwards only,
+                                # so the inner edges stay 9 mm apart at rest
 FOOT_CORNER_RADIUS = 15.0
 FOOT_SOLE_THICKNESS = 5.0
-ANKLE_X_FROM_HEEL = 22.0        # ankle axis sits behind the foot centre
+ANKLE_X_FROM_HEEL = 67.0        # ankle axis 2 mm ahead of the foot centre (old foot: 22, behind it)
 FOOT_SWITCH_SIZE = (6.0, 6.0, 3.5)   # pocket for a 6×6 mm tactile switch, 2 per foot
 FOOT_SWITCHES_PER_FOOT = 2
 

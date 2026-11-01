@@ -287,6 +287,11 @@ A v9 fica parada como a v7, anda e gira tão bem ou melhor que a v8 e segura os 
 `gait_metrics.py` ainda mede 3,6 Hz no pé novo (23 passos em 8 s, como a v7 no pé atual a 1,7 Hz): provavelmente a medida, não o
 passo. Andar de lado continua fraco (um terço do pedido).
 
+**O pé novo foi para o CAD** (`cad/parameters.py`: `FOOT_LENGTH` 130, `FOOT_WIDTH` 67, `FOOT_OUTSET` 7,5,
+`ANKLE_X_FROM_HEEL` 67). A sola exportada é a mesma caixa da variante `walk_heel45_toe20_width15.xml`; o pé passou
+de 15 para 34 g impressos e o robô de 1282 para 1320 g. A v9 no modelo do CAD: 1,27 m / 1,75 m / 376°, 38 de 40
+empurrões. `variants.py` e `foot_study.py` agora somam ao pé novo (a coluna "atual" da tabela acima é o pé antigo).
+
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 
 `checkpoints/cogu_walk_v5/`: 30 M passos no Colab (T4, 4096 robôs, 26,5 min, 18,9 mil passos/s), partindo da v4,
