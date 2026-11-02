@@ -485,6 +485,26 @@ uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/c
     --xml build/mjcf/variants/hip_-120.xml                              # andar, empurrar, cair, levantar
 ```
 
+**Levantar v8 (Colab, 30 M passos a partir do v7, já com estes rolamentos): levanta de praticamente toda queda nos
+dois modelos.** Publicado em `checkpoints/cogu_getup_v8/`; os rolamentos novos estão salvos no checkpoint, então o
+`play.py` não precisa de `--rolls`. `getup_eval.py --seconds 15` (tabela de partidas refeita com os novos):
+
+| | modelo de treino | modelo completo |
+|---|---|---|
+| 30 de cada (sobre os pés / meio do rolamento / queda) | 30 / 30 / 30 | 30 / 30 / 30 |
+| 100 quedas `--seed 1` / `--seed 2` | 99 / 100 | 100 / 100 |
+| v7 `--rolls`, 30 de cada | 30 / 30 / 30 | 30 / 30 / 30 |
+| v7 `--rolls`, 100 quedas `--seed 1` / `--seed 2` | 98 / 100 | 100 / 100 |
+
+Igual ao v7 com os rolamentos novos, um pouco mais rápido sobre os pés (mediana 6,7 contra 8,3 s no treino, 8,7
+contra 10,3 s no completo). Uma queda leva ~10 s (relaxar 2,5 s, rolar ~3,5 s, subir ~4 s). Ainda só no
+simulador: o quadril a −120° não cabe no CAD (−85°).
+
+```bash
+uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v10 \
+    --getup sim/playground/checkpoints/cogu_getup_v8 --xml build/mjcf/variants/hip_-120.xml
+```
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml

@@ -1,0 +1,1 @@
+Checkpoint commit was successful to /content/cogu/build/checkpoints/cogu_getup_v8/000030228480
