@@ -312,6 +312,56 @@ está no calcanhar. O RL pode usar as duas por um instante (ele soma até 1 rad 
 bolha e o centro de massa fica atrás dos pés: força não resolve (servo ×2: pouso 0,61–0,64 contra 0,56–0,58), o corpo
 tem que passar por cima dos pés com velocidade. Quadril além de 85° mudaria isso (CAD).
 
+### Estudo do quadril: coxa mais para trás (2026-11-02)
+
+`hip_study.py`: o modelo de levantar com o limite de trás do quadril (hip pitch) em −100 … −140° em vez dos −85° do
+CAD (`variants.py --hip-min`, só no simulador). Para cada um: o mapa quase estático e 120 quedas aleatórias (como
+`getup_eval drop`, 40 em cada uma das 3 variações de piso / servo). **Sem impulso:** as pernas voltam a `rest`
+(com as pernas recolhidas, a bolha rola o robô até ficar deitado de costas certinho), depois a pegada lenta do
+`getup_reference.py` anda pelo caminho estático do próprio modelo (10° à frente, 1 rad/s).
+
+| Quadril até | Janela costas / bruços | Em pé após a queda | Caiu de costas | De bruços | De lado |
+|---|---|---|---|---|---|
+| −85° (CAD) | 75° / 50° | 0/120 | 0/32 | 0/43 | 0/45 |
+| −100° | 85° / 45° | 0/120 | 0/31 | 0/51 | 0/38 |
+| −110° | 90° / 45° | 0/120 | 0/30 | 0/56 | 0/34 |
+| −115° | 100° / 45° | 0/120 | 0/26 | 0/57 | 0/37 |
+| **−120°** | 105° / 45° | 25/120 | **23/23** | 0/54 | 2/43 |
+| −130° | 110° / 45° | 18/120 | 18/18 | 0/63 | 0/39 |
+| −140° | 105° / 45° | 17/120 | 16/16 | 0/59 | 1/45 |
+
+- **A partir de −120° o robô deitado de costas levanta devagar, sem impulso, em todas as quedas e variações.** Com
+  a coxa a −120°, os pés chegam por baixo do centro de massa com o robô ainda deitado: a janela "só nos pés" passa de
+  75° para 105° (além da horizontal). O limite é nítido: −115° dá 0. O caminho pede no máximo ~0,6 N·m por junta
+  (stall 1,9).
+- **De bruços e de lado: rolar primeiro.** `--search-roll front` / `left`: CMA-ES de 3 quadros, como
+  `getup_search.py`, que deixa o robô deitado de costas. O rolamento de lado vale para os dois lados (espelhado);
+  os rolamentos foram buscados no −120° e reusados no −130° e −140°. Com `--roll`:
+
+| Quadril até | Em pé após a queda | De costas | De bruços | De lado |
+|---|---|---|---|---|
+| −120° | **88/120** | 23/23 | 26/54 | 39/43 |
+| −130° | 86/120 | 18/18 | 34/63 | 34/39 |
+| −140° | 88/120 | 16/16 | 31/59 | 41/45 |
+
+  Os rolamentos são em malha aberta, roteiros fixos (o de bruços falha em metade das quedas e com servo a 70 %); com
+  o v3 e o v4, partindo deitado, eram 0. Vídeo: `docs/renders/sim_getup_hip120.mp4` (costas, bruços, lado; ver
+  ao vivo: `uv run mjpython sim/playground/hip_study.py --hip -120 --view`).
+
+**No CAD a coxa bate na peça do roll a partir de −95°.** `cad/check_envelopes`-style, sólidos exatos: entre −95° e
+−135° só a coxa contra o braço de trás do U do roll (o braço do rolamento do roll e o bloco que o liga à viga do
+servo do quadril), 12–19 mm atrás do eixo do quadril e de 7 mm acima dele até o eixo do roll (32 mm acima); a peça
+do yaw entra a −140° e a bolha só a −170°. A coxa (30 mm de largura) passa inteira pela largura do braço, então um
+chanfro não resolve. Abaixar o eixo do quadril não compensa: 25 mm mais baixo (pilha do quadril de 81 para 106 mm)
+libera só até −120°, sem a margem de 3° do `check_envelopes`. Chegar a −120…−125° pede redesenhar a ligação
+roll → quadril (o braço de trás do U não pode descer atrás do eixo do quadril): decisão de CAD.
+
+```bash
+uv run python sim/playground/hip_study.py                                     # tabela sem rolar
+uv run python sim/playground/hip_study.py --hip -120 --search-roll front      # e --search-roll left
+uv run python sim/playground/hip_study.py --hip -120 -130 -140 --roll
+```
+
 ### Estudo do pé (2026-11-01)
 
 `foot_study.py`: para cada sola (calcanhar para trás, ponta para a frente, largura para fora, em mm; `variants.py`),
