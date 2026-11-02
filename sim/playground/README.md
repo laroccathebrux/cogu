@@ -227,6 +227,22 @@ No passo 0 (só a referência), sobre os pés: 42 % do tempo em pé no treino e 
 zero: 1 de 20 no pé antigo, 6 de 20 com o calcanhar). Do impulso e deitado, 0: a referência só pega, o impulso tem que
 vir do RL. 1 M passos locais não mudam isso (12 de 30; 0 e 0).
 
+**v3 no Colab** (`checkpoints/cogu_getup_v3/`: 50 M passos, T4). `getup_eval`, 100 pousos sobre os pés (semente 1):
+
+| Política | Sobre os pés | Mediana / mais lento |
+|---|---|---|
+| passo ~0 (`v3_smoke`, só a referência) | 35 de 100 | 1,5 s / 2,4 s |
+| 1 M passos locais | 43 de 100 | 1,6 s / 2,9 s |
+| **v3, 50 M passos** | **53 de 100** | 1,4 s / 2,6 s |
+
+- **A correção do RL ajuda na pegada:** 35 → 53 de 100 (30 tentativas: 12 → 17). No modelo completo (contato
+  de malha em tudo, `--xml build/mjcf/cogu_lower_body.xml --table` com as partidas do MJX): 46 de 100.
+- **Impulso e deitado continuam em 0** (30 de cada, e 0 também no treino): a política não descobre o impulso
+  sozinha nem com 1 rad de folga sobre a referência. O tempo em pé no treino fica estável (sobre os pés oscila entre 55 e 85
+  de 500 passos); o RL só refina a pegada.
+- Próximo passo para o impulso: pôr um impulso roteirizado (os assimétricos de `getup_search.py`) também na referência,
+  como foi feito com a pegada.
+
 ### Estudo do pé (2026-11-01)
 
 `foot_study.py`: para cada sola (calcanhar para trás, ponta para a frente, largura para fora, em mm; `variants.py`),
