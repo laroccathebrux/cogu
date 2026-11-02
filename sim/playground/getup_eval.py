@@ -43,6 +43,9 @@ def main(argv=None) -> int:
     ap.add_argument("--starts", nargs="+", choices=("drop", "feet", "throw"), default=["drop"])
     ap.add_argument("--verbose", action="store_true", help="one line per failed trial")
     ap.add_argument("--table", default=None, help="getup_starts table (default: the one of --xml)")
+    ap.add_argument("--scripted-residual", choices=("on", "off"), default=None,
+                    help="override the checkpoint's: does the policy correct the relax and roll scripts "
+                    "(v5, v6 on; v7 off)")
     ap.add_argument("--view", action="store_true", help="play the trials in the viewer, in real time, looping "
                     "(macOS: run with mjpython)")
     ap.add_argument("--video", metavar="MP4", help="film --trials trials of each start kind instead (1 s after up)")
@@ -51,6 +54,8 @@ def main(argv=None) -> int:
     sim = Sim2Sim(Path(args.xml), latest_checkpoint(Path(args.walk).resolve()))
     getup = GetupPolicy(sim, latest_checkpoint(Path(args.checkpoint).resolve()))
     cfg = getup.cfg
+    if args.scripted_residual:
+        cfg.reference.scripted_residual = args.scripted_residual == "on"
     rng = np.random.default_rng(args.seed)
     table = None
     if {"feet", "throw"} & set(args.starts):

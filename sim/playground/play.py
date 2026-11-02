@@ -195,6 +195,8 @@ def getup_config(ckpt: Path):
         cfg.reference.throw = False
     if "reference" in saved and "roll" not in saved["reference"]:   # v1–v4: no relax + roll (v5)
         cfg.reference.roll = False
+    if "reference" in saved and "scripted_residual" not in saved["reference"]:   # v5–v6: corrected the scripts too
+        cfg.reference.scripted_residual = True
     return cfg
 
 
@@ -333,6 +335,8 @@ class GetupPolicy:
         self.filtered = a * action + (1.0 - a) * self.filtered
         if self.cfg.reference.enable:
             self._reference_step()
+            if self.roll and not self.cfg.reference.scripted_residual and self.throw_t >= 0.0:
+                self.filtered[:] = 0.0                     # v7: no correction while relaxing / rolling
             target = np.clip(self.ref + self.filtered * self.cfg.reference.residual_scale, s.lowers, s.uppers)
         else:
             target = np.clip(self.centre + self.filtered * self.half, s.lowers, s.uppers)

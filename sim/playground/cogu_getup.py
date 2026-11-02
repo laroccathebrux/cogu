@@ -43,6 +43,12 @@ the catch. Lying on the back again after a sequence, the catch keeps going; lyin
 v6 (2026-11-02): v5 stood up from 97 % of drops on this model but from 20 % on the full mesh-contact model, where the
 reference alone stands 87 %. So the shapes it lies and stands on are randomised (`randomize.py`) and the correction
 costs a little (`residual`: squared filtered action, with the reference on). Warm-started from v5.
+
+v7 (2026-11-02), `reference.scripted_residual` off: v6 still stood 98 % of drops here and ~30 % on the full model; with
+its correction zeroed while the reference relaxes and rolls it stood 23 of 30 there (the reference alone 22): the
+policy had learned to bend the open-loop relax and roll for this model's contacts, and on the full model the front
+roll then tipped onto a side and back onto the front, over and over. So the correction now only acts in the catch
+(the filter restarts from zero when it begins). Warm-started from v6.
 """
 
 from __future__ import annotations
@@ -125,6 +131,7 @@ def default_config() -> config_dict.ConfigDict:
             legs=[],                   # hip pitch / knee / ankle (deg) at each tilt
             throw=False,               # v4: scripted throws from lying (see above)
             roll=True,                 # v5: relax, roll onto the back, rise (see above; needs the hip at -120°)
+            scripted_residual=False,   # v7: no correction while relaxing / rolling (v5, v6: True)
             relax_time=2.5,            # s of legs going back to `rest` before reading how it lies
             lie_tilt=80.0,             # deg: lying = |tilt| above this and above the throw's trigger + 5
             lie_time=0.3,              # s lying before a throw starts
@@ -402,6 +409,9 @@ class CoguGetup(cogu_env.CoguJoystick):
         state.info["action_filtered"] = filtered
         if cfg.reference.enable:
             state.info["ref"] = self.reference_step(state.data, state.info)
+            if cfg.reference.roll and not cfg.reference.scripted_residual:   # v7: the scripts play as written
+                filtered = jp.where(state.info["throw_t"] >= 0.0, 0.0, filtered)
+                state.info["action_filtered"] = filtered
             targets = jp.clip(state.info["ref"] + filtered * cfg.reference.residual_scale, self._lowers, self._uppers)
         else:
             targets = jp.clip(self._default_pose + filtered * cfg.action_scale, self._lowers, self._uppers)

@@ -410,6 +410,30 @@ sozinha não cai nisso. Por isso o v6:
   modelos).
 - A partir do v5, 30 M passos. O notebook agora testa também no modelo completo (célula 6).
 
+**Resultado do Colab (30 M passos, T4, ~52 min): melhora pouco no modelo completo.** Publicado em
+`checkpoints/cogu_getup_v6/` (é melhor que o v5 nos dois modelos). `getup_eval.py --seconds 15`, 30 de cada
+(sobre os pés / meio do rolamento / queda) e 100 quedas `--seed 1`:
+
+| | modelo de treino | 100 quedas | modelo completo | 100 quedas |
+|---|---|---|---|---|
+| v5 | 30 / 30 / 30 | 97 | 10 / 23 / 6 | |
+| **v6** | 30 / 30 / 30 | **98** | 15 / 25 / 8 | 31 |
+| v6 sem correção ao relaxar e rolar (`--scripted-residual off`) | 25 / 30 / 25 | | **19 / 27 / 23** | |
+| v5 idem | 24 / 30 / 28 | | 13 / 25 / 11 | |
+| só a referência | 20 / 30 / 25 | | 17 / 30 / 22 | |
+
+Todas as quedas que falham no completo terminam iguais: de bruços, inclinado 81°, pélvis a 57 mm. Seguindo uma
+delas: enquanto a referência relaxa as pernas, a correção do v6 (0,07 rad em média, 0,17 no máximo) deixa o robô
+deitado um pouco diferente (pélvis 58 mm e −81,7° contra 64 mm e −84,5° só com a referência); daí o rolamento de
+bruços, que é um roteiro fixo, tomba para o lado e volta de bruços, e tudo se repete. Só com a referência, o mesmo
+rolamento vira de costas e ele levanta em 11 s. Com metade da correção ainda são 12 de 30. A política aprendeu a
+dobrar o relaxar e o rolar para os contatos do modelo de treino; na subida ela ajuda nos dois modelos.
+
+**Levantar v7: sem correção nos roteiros.** `reference.scripted_residual` (novo, `False`): enquanto a referência
+relaxa ou rola, a ação da política é ignorada (o filtro recomeça do zero na subida); `play.py` e `getup_eval.py`
+fazem o mesmo, e checkpoints sem a chave (v5, v6) seguem corrigindo tudo. A partir do v6, 30 M passos
+(notebook: `NAME = "cogu_getup_v7"`, `RESTORE = .../cogu_getup_v6`).
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml
