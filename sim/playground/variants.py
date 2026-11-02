@@ -65,11 +65,12 @@ def build(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, 
         spec.meshdir = str((src.parent / spec.meshdir).resolve())
     deg = (lambda a: a) if spec.compiler.degree else math.radians   # joint ranges follow the compiler's unit
     for side in "LR":
-        g = spec.geom(f"{side}_foot_sole")
-        g.size[0] += (heel + toe) / 2000                # half-length
-        g.pos[0] += (toe - heel) / 2000                 # heel grows backwards, toe forwards
-        g.size[1] += width / 2000
-        g.pos[1] += (width / 2000) * (1 if side == "L" else -1)   # outwards: the inner edges stay 9 mm apart
+        if heel or toe or width:                        # the full model has no sole box (mesh feet)
+            g = spec.geom(f"{side}_foot_sole")
+            g.size[0] += (heel + toe) / 2000            # half-length
+            g.pos[0] += (toe - heel) / 2000             # heel grows backwards, toe forwards
+            g.size[1] += width / 2000
+            g.pos[1] += (width / 2000) * (1 if side == "L" else -1)   # outwards: the inner edges stay 9 mm apart
         if knee_max is not None:
             spec.joint(f"{side}_knee").range[1] = deg(knee_max)
             spec.actuator(f"{side}_knee").ctrlrange[1] = math.radians(knee_max)   # ctrlrange is always radians

@@ -4,6 +4,7 @@
     uv run python sim/playground/getup_eval.py CKPT --trials 30 --xml build/mjcf/cogu_lower_body.xml
     uv run python sim/playground/getup_eval.py CKPT --starts feet throw drop --xml build/mjcf/variants/heel_45.xml
     uv run mjpython sim/playground/getup_eval.py CKPT --starts feet throw drop --view     # watch the trials, looping
+    uv run python sim/playground/getup_eval.py CKPT --starts drop --trials 4 --video docs/renders/getup.mp4
 
 `drop` trials drop the robot from 35 cm in a random orientation and joint pose (like the training reset), let it
 settle for 1 s, then run the policy for up to 10 s. `feet` and `throw` trials start from the `getup_starts.py`
@@ -44,6 +45,7 @@ def main(argv=None) -> int:
     ap.add_argument("--table", default=None, help="getup_starts table (default: the one of --xml)")
     ap.add_argument("--view", action="store_true", help="play the trials in the viewer, in real time, looping "
                     "(macOS: run with mjpython)")
+    ap.add_argument("--video", metavar="MP4", help="film --trials trials of each start kind instead (1 s after up)")
     args = ap.parse_args(argv)
 
     sim = Sim2Sim(Path(args.xml), latest_checkpoint(Path(args.walk).resolve()))
@@ -77,6 +79,8 @@ def main(argv=None) -> int:
 
     if args.view:
         return view(sim, getup, set_start, args)
+    if args.video:
+        return video(sim, getup, set_start, args)
     for kind in args.starts:
         times, fails = [], 0
         for t in range(args.trials):
@@ -100,6 +104,35 @@ def main(argv=None) -> int:
         n = args.trials
         print(f"{Path(args.checkpoint).name} [{Path(args.xml).stem}] {kind:5s}: stood up in {n - fails} of {n}"
               + (f", median {np.median(times):.1f} s, slowest {max(times):.1f} s" if times else ""), flush=True)
+    return 0
+
+
+def video(sim, getup, set_start, args) -> int:
+    """The trials of each start kind, one after the other, filmed at 30 fps (each ends 1 s after standing up)."""
+    import imageio.v2 as imageio
+    renderer = mujoco.Renderer(sim.m, 480, 640)
+    cam = mujoco.MjvCamera()
+    cam.type, cam.distance, cam.elevation, cam.azimuth = mujoco.mjtCamera.mjCAMERA_FREE, 0.9, -15, 135
+    every = max(1, int(round(1 / (30 * sim.dt))))
+    frames = []
+    for kind in args.starts:
+        for t in range(args.trials):
+            getup.start(*set_start(kind))
+            t_end = None
+            for i in range(int(args.seconds / sim.dt)):
+                getup.step()
+                if t_end is None and getup.ready():
+                    t_end = i
+                if i % every == 0:
+                    cam.lookat[:] = (sim.d.qpos[0], sim.d.qpos[1], 0.12)
+                    renderer.update_scene(sim.d, cam)
+                    frames.append(renderer.render())
+                if t_end is not None and i - t_end > int(1.0 / sim.dt):
+                    break
+            print(f"  {kind} {t}: {'up in %.1f s' % ((t_end + 1) * sim.dt) if t_end is not None else 'not up'}", flush=True)
+    Path(args.video).parent.mkdir(parents=True, exist_ok=True)
+    imageio.mimwrite(args.video, frames, fps=30, codec="libx264", quality=8, macro_block_size=None)
+    print(f"video: {args.video}")
     return 0
 
 

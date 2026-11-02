@@ -369,6 +369,22 @@ Só a referência (ação zero), 512 episódios no MJX, em pé ao fim dos 15 s: 
 `train.py --episode-length` sobrescrevia o do env; agora o padrão é o do env), `getup_eval --seconds 15`, 10 de cada:
 sobre os pés 6, meio do rolamento 10, queda 6.
 
+**Resultado do Colab (50 M passos, T4, ~70 min de treino): levanta de quase qualquer queda.** Publicado em
+`checkpoints/cogu_getup_v5/`. `getup_eval.py --seconds 15`, modelo de treino (`hip_-120`):
+
+| Partida | v3 (CAD, −85°) | Só a referência v5 | **v5** |
+|---|---|---|---|
+| sobre os pés (30) | 53 de 100 | 20 de 30 | **30 de 30** |
+| meio do rolamento (30) | — | — | **30 de 30** |
+| queda (30 / 100, `--seed 1`) | 0 | 81 de 100 | **30 de 30 / 97 de 100** |
+
+Leva ~10 s (relaxar 2,5 s, rolar 3,5 s, subir ~4 s). No modelo completo (malha de contato em tudo,
+`variants.py --hip-min -120 --src build/mjcf/cogu_lower_body.xml`), mais difícil: sobre os pés 10 de 30, meio do
+rolamento 23 de 30, queda 6 de 30. A diferença vem dos contatos simplificados do modelo de treino (caixa na sola,
+bolha e tambor em formas simples); as partidas "sobre os pés" ainda vêm da tabela do modelo de treino. Vídeo de 4
+quedas: `docs/renders/sim_getup_v5.mp4` (`getup_eval.py ... --video`). Tudo isso supõe o quadril a −120°, que o CAD
+ainda não permite.
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml
