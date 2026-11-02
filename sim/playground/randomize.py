@@ -5,6 +5,11 @@ mass (the phone — any phone in parameters.PHONE_ENVELOPE, 165–230 g, 145–1
 nominal iPhone 15 Pro Max — plus the battery), the servo model (gear friction, rotor inertia, position-loop kp / kv, stall torque with the
 battery voltage, back-EMF damping) and the rest pose offset (qpos0). The actuator *latency* is randomised inside the env
 (`action_delay`), not here.
+
+On the get-up model (it has a `bubble_hull`), also the shapes it lies and stands on (get-up v6, 2026-11-02): the
+bubble ellipsoid, the drum cylinder, the foot sole boxes and the leg link boxes are scaled and shifted a little.
+Get-up v5 stood up from 97 % of drops on the training model but from 20 % on the full mesh-contact model, where the
+scripted reference alone stands 87 %: the policy had learned the exact primitives (README, "Levantar v6").
 """
 
 from __future__ import annotations
@@ -15,15 +20,41 @@ import mujoco
 from mujoco import mjx
 
 
+GEOM_SCALE = {                 # name prefix or suffix: (min, max) size scale, per axis
+    "bubble_hull": (0.92, 1.05),
+    "drum_hull": (0.9, 1.05),
+    "foot_sole": (0.85, 1.05),
+    "_box": (0.7, 1.05),
+}
+GEOM_SHIFT = 0.005             # m, ± on each axis of those geoms' positions
+
+
+def _shape_geoms(mj_model: mujoco.MjModel) -> tuple[list[int], list[tuple[float, float]]]:
+    ids, ranges = [], []
+    for i in range(mj_model.ngeom):
+        name = mj_model.geom(i).name
+        for key, rng in GEOM_SCALE.items():
+            if name == key or name.endswith(key):
+                ids.append(i)
+                ranges.append(rng)
+                break
+    return ids, ranges
+
+
 def make_domain_randomizer(mj_model: mujoco.MjModel):
     floor_id = mj_model.geom("floor").id
+    getup = any(mj_model.geom(i).name == "bubble_hull" for i in range(mj_model.ngeom))
+    shape_ids, shape_ranges = _shape_geoms(mj_model) if getup else ([], [])
+    shape_ids = jp.array(shape_ids, dtype=jp.int32)
+    shape_lo = jp.array([r[0] for r in shape_ranges])
+    shape_hi = jp.array([r[1] for r in shape_ranges])
     pelvis_id = mj_model.body("pelvis").id
     nu = mj_model.nu
 
     def domain_randomize(model: mjx.Model, rng: jax.Array):
         @jax.vmap
         def rand(rng):
-            keys = jax.random.split(rng, 11)
+            keys = jax.random.split(rng, 13)
             geom_friction = model.geom_friction.at[floor_id, 0].set(
                 jax.random.uniform(keys[0], minval=0.4, maxval=1.0))
             frictionloss = model.dof_frictionloss.at[6:].set(
@@ -48,11 +79,23 @@ def make_domain_randomizer(mj_model: mujoco.MjModel):
             gainprm = model.actuator_gainprm.at[:, 0].multiply(kp_scale)
             biasprm = model.actuator_biasprm.at[:, 1].multiply(kp_scale)
             biasprm = biasprm.at[:, 2].multiply(kv_scale)
-            return (geom_friction, frictionloss, armature, body_mass, qpos0, gainprm, biasprm, body_ipos,
-                    damping, forcerange)
+            out = (geom_friction, frictionloss, armature, body_mass, qpos0, gainprm, biasprm, body_ipos,
+                   damping, forcerange)
+            if getup:
+                n = shape_ids.shape[0]
+                scale = jax.random.uniform(keys[11], (n, 3), minval=shape_lo[:, None], maxval=shape_hi[:, None])
+                geom_size = model.geom_size.at[shape_ids].multiply(scale)
+                geom_pos = model.geom_pos.at[shape_ids].add(
+                    jax.random.uniform(keys[12], (n, 3), minval=-GEOM_SHIFT, maxval=GEOM_SHIFT))
+                # the broad phase culls with rbound: keep it covering the biggest size
+                geom_rbound = model.geom_rbound.at[shape_ids].multiply(jp.max(scale, axis=1) + 0.05)
+                out += (geom_size, geom_pos, geom_rbound)
+            return out
 
         fields = ("geom_friction", "dof_frictionloss", "dof_armature", "body_mass", "qpos0",
                   "actuator_gainprm", "actuator_biasprm", "body_ipos", "dof_damping", "actuator_forcerange")
+        if getup:
+            fields += ("geom_size", "geom_pos", "geom_rbound")
         values = rand(rng)
         in_axes = jax.tree_util.tree_map(lambda x: None, model)
         in_axes = in_axes.tree_replace({f: 0 for f in fields})

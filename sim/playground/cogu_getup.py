@@ -39,6 +39,10 @@ onto the back (`getup_sequences/roll_front.json`, `roll_side.json` or its mirror
 the catch. Lying on the back again after a sequence, the catch keeps going; lying any other way, it starts over. The
 `throw` starts are snapshots of the rolls (`getup_starts.py --mode roll`). Observation (48): the same two values
 (in a sequence, share of it done). Episodes are 15 s (relax + roll + rise take ~10 s).
+
+v6 (2026-11-02): v5 stood up from 97 % of drops on this model but from 20 % on the full mesh-contact model, where the
+reference alone stands 87 %. So the shapes it lies and stands on are randomised (`randomize.py`) and the correction
+costs a little (`residual`: squared filtered action, with the reference on). Warm-started from v5.
 """
 
 from __future__ import annotations
@@ -105,6 +109,7 @@ def default_config() -> config_dict.ConfigDict:
                 action_rate=-0.01,
                 torques=-0.002,
                 dof_pos_limits=-1.0,
+                residual=-0.5,         # v6: squared correction of the reference (filtered action), kept small
             ),
             height_target=0.20,        # m, pelvis (rest: 0.205)
             height_lying=0.07,         # m, pelvis lying on the bubble (0.057-0.074)
@@ -461,5 +466,6 @@ class CoguGetup(cogu_env.CoguJoystick):
             "action_rate": jp.sum(jp.square(action - info["last_act"])),
             "torques": jp.sum(jp.abs(data.actuator_force)),
             "dof_pos_limits": self._cost_joint_pos_limits(q),
+            "residual": jp.sum(jp.square(info["action_filtered"])) * float(self._config.reference.enable),
         }
         return rewards, upright

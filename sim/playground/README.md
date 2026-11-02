@@ -385,6 +385,31 @@ bolha e tambor em formas simples); as partidas "sobre os pés" ainda vêm da tab
 quedas: `docs/renders/sim_getup_v5.mp4` (`getup_eval.py ... --video`). Tudo isso supõe o quadril a −120°, que o CAD
 ainda não permite.
 
+**Levantar v6: a política aprendeu os contatos simplificados (2026-11-02).** Quedas (30, `getup_eval --starts drop`),
+política v5 e a referência sozinha, trocando uma coisa de cada vez:
+
+| Modelo | v5 | Só a referência |
+|---|---|---|
+| treino (`hip_-120`) | 29 | 27 (81 de 100) |
+| completo (malha de contato em tudo) | 6 | **26** |
+| treino, bolha com atrito 0,4 / sem caixas nas pernas / pernas 70 % / sem tambor / solver do completo | 29 / 29 / 29 / 29 / 29 | |
+| completo, sola em caixa / bolha a 0,8 / sem a faixa de TPU / sem colisão entre peças | 13 / 11 / 7 / 2 | |
+| completo, um atrito para tudo 0,6 / 0,8 / 0,9 / 1,0 | 12 / 13 / 12 / 12 | |
+| completo com as formas do treino (sola, bolha, tambor, caixas) | 11 | |
+| idem, com os bits de contato e o atrito do piso do treino | 29 | |
+
+Nenhuma diferença sozinha explica; somadas, sim. A política corrige pouco (0,07 rad em média por junta, p95 0,17),
+mas essas correções dependem dos contatos exatos do modelo de treino. Na falha típica no modelo completo, o robô para
+de bruços sobre os pés e a faixa de TPU, inclinado ~82°, e o rolamento de bruços se repete sem sucesso. A referência
+sozinha não cai nisso. Por isso o v6:
+
+- **Formas de contato variadas** (`randomize.py`, só no modelo de levantar): a cada ambiente, a bolha (×0,92–1,05),
+  o tambor (×0,9–1,05), as solas (×0,85–1,05) e as caixas das pernas (×0,7–1,05), por eixo, e as posições delas
+  ±5 mm. O atrito do piso já variava de 0,4 a 1,0.
+- **A correção custa um pouco:** `residual` −0,5 × Σ ação filtrada² (fica perto da referência, que funciona nos dois
+  modelos).
+- A partir do v5, 30 M passos. O notebook agora testa também no modelo completo (célula 6).
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml
