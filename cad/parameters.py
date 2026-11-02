@@ -27,7 +27,7 @@ REST_ANKLE_DEG = -35.0
 
 # Joint ranges used by the simulator (absolute, 0 = straight leg). They must stay inside the
 # collision-free intervals measured by `uv run python -m cad.check_envelopes` (exact solid
-# overlaps, run in CI). Measured on 2026-10-25: hip_pitch -90..+20, knee -30..+95,
+# overlaps, run in CI). Measured on 2026-10-25 (hip_pitch back to -125 since 2026-11-02): hip_pitch -90..+20, knee -30..+95,
 # ankle -85..+85, hip_roll beyond ±60, hip_yaw ≈ ±40 (one leg turning, the other straight).
 JOINT_RANGES_DEG = {
     # hip_yaw is ASYMMETRIC: the knee sits ~65 mm behind the yaw axis and the legs are only
@@ -36,7 +36,10 @@ JOINT_RANGES_DEG = {
     # assembly mirrors it for the left leg.
     "hip_yaw": (-7.0, 30.0),
     "hip_roll": (-35.0, 35.0),
-    "hip_pitch": (-85.0, 15.0),   # forward limit: thigh housing corners meet the hip-pitch beam
+    # forward limit: thigh housing corners meet the hip-pitch beam. Back: -120 since 2026-11-02 (was -85: the thigh met
+    # the roll U's rear paddle from -95; now free to -125 with the leg straight, the foot then meets the drum, and to
+    # -135 with the knee bent, where the thigh meets the yaw / roll links). The get-up rises from the back at -120.
+    "hip_pitch": (-120.0, 15.0),
     "knee": (0.0, 90.0),          # shin cheeks meet the thigh housing beyond ~95°
     "ankle": (-75.0, 45.0),
 }
@@ -205,10 +208,15 @@ BACK_HUB_STUB_LENGTH = 5.0      # Ø(8 − 0.15) stub that enters the bearing
 FORK_CLEARANCE = 0.8            # gap between fork plates and servo discs
 # The STS3215's two bus sockets are on its BACK face, ~14 mm from the shaft (hardware/wiring). At the hip roll
 # the U's rear paddle covers them over the whole range (8.6 mm from the case face), so that paddle sits this much
-# further back, on a longer back hub (`back_hub_roll`). The leg stays put: a root block behind the pitch beam carries
-# the paddle (hip.py). 6 mm is a guess for a 5264 plug plus the cable bend (14.6 mm in all): to revisit once the plug
+# further back, on a longer back hub (`back_hub_roll`). The leg stays put: the paddle hangs from the outboard bridge
+# below (hip.py). 6 mm is a guess for a 5264 plug plus the cable bend (14.6 mm in all): to revisit once the plug
 # is measured.
 ROLL_REAR_PADDLE_SHIFT = 6.0
+# 2026-11-02: the rear paddle no longer runs down to the pitch beam (the thigh met it from hip pitch -95°); an outboard
+# bridge at the roll axis height joins it to the front paddle (hip.py). Section 5 × 16 mm: under a fall-sized load at
+# the bearing (10× the leg's weight) ~20 MPa in PETG.
+ROLL_BRIDGE_THICKNESS = 5.0
+ROLL_BRIDGE_HEIGHT = 16.0
 CABLE_CHANNEL_WIDTH = 6.0       # for the 3-wire servo lead (JST 2.54 3P connector ≈ 8 × 3.5 mm)
 CABLE_CHANNEL_DEPTH = 4.0
 

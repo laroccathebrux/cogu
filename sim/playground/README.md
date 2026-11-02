@@ -356,6 +356,13 @@ chanfro não resolve. Abaixar o eixo do quadril não compensa: 25 mm mais baixo 
 libera só até −120°, sem a margem de 3° do `check_envelopes`. Chegar a −120…−125° pede redesenhar a ligação
 roll → quadril (o braço de trás do U não pode descer atrás do eixo do quadril): decisão de CAD.
 
+**CAD atualizado (2026-11-02, `docs/decisions/ADR-003-hip-pitch-120.md`): o quadril vai a −120°.** O braço de trás
+do U só envolve o rolamento e se liga ao da frente por uma ponte lateral por fora (5 × 16 mm, na altura do eixo do
+roll), em vez de descer até a viga. Os eixos não mudam de lugar. `check_envelopes`: livre de −135 a +20°;
+com a perna esticada o pé encosta no tambor a partir de −130°. Render: `docs/renders/cad_hip_pitch_-120.png`. No
+modelo novo, o levantar v8 segue 30/30 em cada partida e 99–100 de 100 quedas, e a marcha v10 aguenta 38 de 40
+empurrões. As variantes `hip_-120` agora são iguais ao CAD.
+
 **Levantar v5 no quadril −120° (2026-11-02, só no simulador).** `cogu_getup.py`, `reference.roll` (sem impulso):
 deitado por 0,3 s, a referência relaxa as pernas até `rest` (2,5 s a 1 rad/s), lê como o robô ficou (pelo IMU) e,
 de bruços ou de lado, toca o rolamento até ficar de costas (`getup_sequences/roll_front.json`, `roll_side.json` e

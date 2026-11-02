@@ -103,7 +103,7 @@ def main(argv=None) -> int:
         th, sh, _ = p.thigh_chain(a, r["knee"], r["ankle"])
         pa = (hip.PITCH_AXIS_X, hip.PITCH_AXIS_Y, hip.PITCH_AXIS_Z)
         return _vol(p.roll, th.moved(Location(pa))) + _vol(p.roll, sh.moved(Location(pa)))
-    results["hip_pitch"] = sweep("hip_pitch", rng(-100, 100), t_pitch, r["hip_pitch"])
+    results["hip_pitch"] = sweep("hip_pitch", rng(-150, 100), t_pitch, r["hip_pitch"])
 
     # knee: thigh vs shin
     def t_knee(a):

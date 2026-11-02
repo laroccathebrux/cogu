@@ -37,11 +37,19 @@ PITCH_HOUSING_OPEN = 1.0
 # (digitigrade rest pose and crouch); the beam's rear end is flush with the rear paddle.
 # The U's rear paddle is pushed back ROLL_REAR_PADDLE_SHIFT, clear of the roll servo's bus sockets. The pitch beam
 # stays put (moving it back would leave the front paddle hanging off its open front end, where the servo slides
-# in): a root block behind the beam carries the paddle instead, and the leg does not move.
+# in), and the leg does not move.
 ROLL_REAR_Y0 = K.BEARING_PLATE_Y0 - P.ROLL_REAR_PADDLE_SHIFT
 ROLL_REAR_Y1 = K.BEARING_PLATE_Y1 - P.ROLL_REAR_PADDLE_SHIFT
 PITCH_AXIS_X = K.BEARING_PLATE_Y0 - P.CLEARANCE_LOOSE - K.HOUSING_Z_BOTTOM   # -30.84
 BEAM_REAR_X = PITCH_AXIS_X + K.HOUSING_Z_BOTTOM                              # -43.65: rear end of the pitch beam
+# 2026-11-02, hip pitch to -120° (get-up from the back with no throw, sim/playground README "Estudo do quadril"):
+# the rear paddle used to run down to the beam, 12–19 mm behind the pitch axis, and the thigh met it from -95°.
+# Now it only rings the bearing, and an OUTBOARD bridge joins it to the front paddle at the roll axis height: outside
+# the roll servo housing's sweep (like the beam), outboard of the thigh's bearing plate, and above the thigh's swing.
+ROLL_BRIDGE_Y1 = ROLL_LINK_BEAM_TOP - 1.0          # -42.7: inner face, 2 mm outside the roll housing's corner sweep
+ROLL_BRIDGE_Y0 = ROLL_BRIDGE_Y1 - P.ROLL_BRIDGE_THICKNESS
+ROLL_BRIDGE_Z0, ROLL_BRIDGE_Z1 = -P.ROLL_BRIDGE_HEIGHT, 0.0   # top at the roll axis: low, clear of the drum at full roll
+ROLL_REAR_PADDLE_BOTTOM = ROLL_BRIDGE_Z0
 # Lateral position of the pitch stack. The leg's fork (horn plate .. bearing plate) is wider
 # than HIP_SPACING, so the fork centre is pushed OUTBOARD of the roll/yaw axis until the two
 # legs' inner plates are LEG_GAP apart at the midline.
@@ -142,10 +150,11 @@ def build_yaw_link() -> CoguPart:
 
 
 def build_roll_link() -> CoguPart:
-    """U bracket around the roll servo (horn paddle front, bearing paddle rear) whose
-    bottom beam houses the hip-pitch servo (shaft along +Y)."""
+    """U bracket around the roll servo: the horn paddle (front) runs down to the bottom beam, which houses the
+    hip-pitch servo (shaft along +Y); the bearing paddle (rear) only rings the 688ZZ and hangs from an outboard
+    bridge to the front paddle, so nothing sits behind the pitch axis where the thigh swings back."""
     front = paddle(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, ROLL_LINK_BEAM_TOP - 2.0, 0.0)
-    rear = paddle(ROLL_REAR_Y0, ROLL_REAR_Y1, ROLL_LINK_BEAM_TOP - 2.0, 0.0)
+    rear = paddle(ROLL_REAR_Y0, ROLL_REAR_Y1, ROLL_REAR_PADDLE_BOTTOM, 0.0)
     pcut = horn_paddle_cutters(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, 0.0) + bearing_paddle_cutter(ROLL_REAR_Y1, 0.0)
     # paddles were built with Y as the axis; the roll axis is X: rotate −90° about Z (+Y -> +X)
     front, rear, pcut = (s.rotate(Axis.Z, -90) for s in (front, rear, pcut))
@@ -154,17 +163,22 @@ def build_roll_link() -> CoguPart:
     housing, cutters = servo_housing(open_top=PITCH_HOUSING_OPEN)
     housing = housing.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
     cutters = cutters.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
-    # root of the shifted rear paddle, behind the beam; stops 1 mm short of the thigh's horn plate, which swings
-    # past it at hip pitch < -60°
-    root_y0, root_y1 = -K.PADDLE_RADIUS, PITCH_AXIS_Y + K.HORN_PLATE_Y0 - 1.0
-    root = Box(BEAM_REAR_X + 2.0 - ROLL_REAR_Y0, root_y1 - root_y0, 8.0,
-               align=(Align.MIN, Align.MIN, Align.MAX)).moved(Location((ROLL_REAR_Y0, root_y0, ROLL_LINK_BEAM_TOP)))
-    solid = front + rear + root + housing - (pcut + cutters)
+    # outboard bridge (-Y on the right leg) from the rear paddle to the front one, with a web into each paddle
+    z0, z1 = ROLL_BRIDGE_Z0, ROLL_BRIDGE_Z1
+    bridge = Box(K.HORN_PLATE_Y1 - ROLL_REAR_Y0, ROLL_BRIDGE_Y1 - ROLL_BRIDGE_Y0, z1 - z0,
+                 align=(Align.MIN, Align.MIN, Align.MIN)).moved(Location((ROLL_REAR_Y0, ROLL_BRIDGE_Y0, z0)))
+    bridge = bridge.fillet(2.0, bridge.edges().filter_by(Axis.X))
+    for x0, x1 in ((ROLL_REAR_Y0, ROLL_REAR_Y1), (K.HORN_PLATE_Y0, K.HORN_PLATE_Y1)):
+        web = Box(x1 - x0, (-K.PADDLE_RADIUS + 2.0) - (ROLL_BRIDGE_Y0 + 1.0), z1 - z0,
+                  align=(Align.MIN, Align.MIN, Align.MIN)).moved(Location((x0, ROLL_BRIDGE_Y0 + 1.0, z0)))
+        bridge = bridge + web
+    solid = front + rear + bridge + housing - (pcut + cutters)
     servo_com = Vector(PITCH_AXIS_X + (S.x_min + S.x_max) / 2, PITCH_AXIS_Y + S.y_back_face / 2, PITCH_AXIS_Z)
     return CoguPart(
         name="hip_roll_link",
         solid=solid,
         print_rotation=Rotation(0, 0, 0),
-        print_notes="Beam (pitch housing) flat on the bed, U arms up. Tree supports under the arm roots only.",
+        print_notes="Beam (pitch housing) flat on the bed, front arm up. Tree supports under the outboard bridge and "
+                    "the rear paddle (flat underside 56 mm above the bed) and under the front arm root.",
         attached_masses=[("hip_pitch_servo", S.mass_g, servo_com)],
     )
