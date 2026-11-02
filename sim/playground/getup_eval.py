@@ -43,6 +43,8 @@ def main(argv=None) -> int:
     ap.add_argument("--starts", nargs="+", choices=("drop", "feet", "throw"), default=["drop"])
     ap.add_argument("--verbose", action="store_true", help="one line per failed trial")
     ap.add_argument("--table", default=None, help="getup_starts table (default: the one of --xml)")
+    ap.add_argument("--rolls", metavar="DIR", help="play roll_front.json / roll_side.json from DIR instead of the "
+                    "checkpoint's rolls (e.g. sim/playground/getup_sequences after a roll_search.py)")
     ap.add_argument("--scripted-residual", choices=("on", "off"), default=None,
                     help="override the checkpoint's: does the policy correct the relax and roll scripts "
                     "(v5, v6 on; v7 off)")
@@ -52,7 +54,7 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     sim = Sim2Sim(Path(args.xml), latest_checkpoint(Path(args.walk).resolve()))
-    getup = GetupPolicy(sim, latest_checkpoint(Path(args.checkpoint).resolve()))
+    getup = GetupPolicy(sim, latest_checkpoint(Path(args.checkpoint).resolve()), rolls=args.rolls)
     cfg = getup.cfg
     if args.scripted_residual:
         cfg.reference.scripted_residual = args.scripted_residual == "on"

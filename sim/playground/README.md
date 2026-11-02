@@ -451,6 +451,40 @@ no completo). No modelo de treino, a maioria das quedas que falham termina em p�
 mas sem chegar a `rest` parado a tempo; no completo, metade fica deitada de bruços (pélvis 64 mm). O v6 continua
 melhor no modelo de treino; o v7 é o que transfere, e é o mais perto do robô real.
 
+**Rolar a partir de quedas reais (2026-11-02): ~100 % das quedas em pé nos dois modelos.** Os rolamentos (a manobra
+de rolar de bruços ou de lado até ficar de costas) tinham sido buscados de uma única pose deitada; partindo das poses
+reais (quedas como `getup_eval drop`, depois o relaxar do env), o de bruços, que é o caso mais comum (~57 % das
+quedas), deixava de costas só 63 % (treino) e 70 % (completo). `roll_search.py`: um banco de 150 quedas relaxadas
+por modelo, cada uma também com o atrito do piso ×0,7 e ×1,3; CMA-ES a partir do rolamento atual, cada geração
+pontuada num sorteio de partidas dos dois modelos. Os novos estão em `getup_sequences/roll_front.json` e
+`roll_side.json`. Em 150 quedas novas por modelo (`--check --seed 1`), de costas após rolar:
+
+| | de bruços, treino | de bruços, completo | de lado, treino | de lado, completo |
+|---|---|---|---|---|
+| antes | 66 % | 64 % | 87 % | 100 % |
+| **agora** | **97 %** | **100 %** | **96 %** | **100 %** |
+
+Como o v7 não corrige os roteiros, ele pode tocar os novos sem treinar de novo (`--rolls DIR` no `play.py` e no
+`getup_eval.py`; sem a opção, cada checkpoint toca os rolamentos com que treinou). `getup_eval --seconds 15`, v7:
+
+| | modelo de treino | modelo completo |
+|---|---|---|
+| 100 quedas `--seed 1`, rolamentos antigos | 84 | 63 |
+| 100 quedas `--seed 1`, **novos** (só a referência) | **98** (98) | **100** (100) |
+| 100 quedas `--seed 2`, novos | 100 | 100 |
+| sobre os pés (30), novos | 30 | 30 |
+
+Leva ~10 s (mediana). Vídeo de 4 quedas no modelo completo: `docs/renders/sim_getup_rolls.mp4`. O notebook já
+treina o v8 a partir do v7 com estes rolamentos (as partidas "meio do rolamento" passam a ser deles).
+
+```bash
+uv run python sim/playground/roll_search.py --check                     # rolamentos atuais, por pose e modelo
+uv run python sim/playground/roll_search.py --search front              # -> build/roll_search/roll_front.json
+uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v10 \
+    --getup sim/playground/checkpoints/cogu_getup_v7 --rolls sim/playground/getup_sequences \
+    --xml build/mjcf/variants/hip_-120.xml                              # andar, empurrar, cair, levantar
+```
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml

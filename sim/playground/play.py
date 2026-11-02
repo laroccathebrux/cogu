@@ -203,7 +203,9 @@ def getup_config(ckpt: Path):
 class GetupPolicy:
     """The get-up policy (cogu_getup) driving the same MjData as a Sim2Sim walker: sim2sim of CoguGetup."""
 
-    def __init__(self, sim: Sim2Sim, ckpt: Path, seed: int = 1):
+    def __init__(self, sim: Sim2Sim, ckpt: Path, seed: int = 1, rolls: Path | None = None):
+        """`rolls`: a folder with roll_front.json / roll_side.json to play instead of the checkpoint's (a policy that
+        does not correct the scripts, v7 on, can take newer ones: roll_search.py)."""
         self.sim, self.ckpt = sim, ckpt
         self.cfg = getup_config(ckpt)
         self.policy = jax.jit(load_policy(ckpt))
@@ -223,9 +225,9 @@ class GetupPolicy:
             specs = {}
             for name in ("front", "side"):
                 t = ref[f"roll_{name}"]
-                path = getup_starts.ROLLS[name]
-                specs[name] = (t.to_dict() if t.durations else json.loads(path.read_text()) if path.exists()
-                               else dict(targets=[], durations=[], hold=0.0))
+                path = getup_starts.ROLLS[name] if rolls is None else Path(rolls) / f"roll_{name}.json"
+                specs[name] = (t.to_dict() if t.durations and rolls is None else json.loads(path.read_text())
+                               if path.exists() else dict(targets=[], durations=[], hold=0.0))
             self.roll_keys, self.roll_ends = getup_starts.roll_table(sim.default_pose, specs)
         if self.throw:                                   # v4: and a scripted throw from lying (cogu_getup)
             self.throws = []
@@ -503,6 +505,9 @@ def parse_args(argv=None):
                          "try build/mjcf/cogu_lower_body.xml for full mesh contacts)")
     ap.add_argument("--getup", default=None, metavar="CKPT",
                     help="get-up policy: after a fall it takes over, then hands back to the walker")
+    ap.add_argument("--rolls", default=None, metavar="DIR",
+                    help="get-up: play DIR's roll_front.json / roll_side.json instead of the checkpoint's (v7 on; "
+                         "e.g. sim/playground/getup_sequences after roll_search.py)")
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--seconds", type=float, default=8.0)
     ap.add_argument("--vx", type=float, default=0.0)
@@ -549,7 +554,7 @@ def main(argv=None) -> int:
         rc, new = sim.cfg.recover, cogu_env.default_config().recover
         rc.latch, rc.hold, rc.cooldown = True, new.hold, new.cooldown
     sim.command[:] = (args.vx, args.vy, args.wz)
-    getup = GetupPolicy(sim, latest_checkpoint(Path(args.getup).resolve())) if args.getup else None
+    getup = GetupPolicy(sim, latest_checkpoint(Path(args.getup).resolve()), rolls=args.rolls) if args.getup else None
     if args.headless:
         return run_headless(sim, args.seconds)
     return run_viewer(sim, args.speed, follow, getup)
