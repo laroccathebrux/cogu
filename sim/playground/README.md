@@ -273,6 +273,27 @@ impulso). `play.py` e `getup_eval.py` espelham tudo; checkpoints v3 continuam ro
 256 episódios: deitado → impulsa em 72 % (antes da busca de bruços); sobre os pés 24 % do tempo em pé no passo 0
 (igual ao v3). 1 M passos locais: sobre os pés 2 de 10 no `getup_eval`, impulso e deitado 0.
 
+**Resultado do Colab (50 M passos, T4): o v4 piorou, o v3 continua publicado.** `getup_eval.py`, mesmo modelo MJX:
+
+| Partida | v3 | **v4** |
+|---|---|---|
+| sobre os pés (100, `--seed 1`) | 53 | **39** |
+| sobre os pés / impulso / deitado (30 cada) | — | 14 / 0 / 0 |
+
+O que acontece no impulso (20 partidas de cada, 10 s; script de diagnóstico, não versionado):
+
+| | Impulsos por partida | Pico up_z (mediana / máx.) | Tempo com up_z > 0,8 |
+|---|---|---|---|
+| deitado, com a política | 3,5 | 0,34 / 0,47 | 0 |
+| deitado, só a referência | 4,0 | 0,39 / 0,53 | 0 |
+| meio do impulso, com a política | 2,5 | 0,35 / 0,52 | 0 |
+| meio do impulso, só a referência | 3,0 | 0,49 / 0,52 | 0 |
+
+O impulso dispara e repete, mas nunca passa de up_z 0,53 (~58°), e a correção do RL deixa o impulso **mais fraco**,
+não mais forte. Como nenhum episódio chega em pé partindo deitado, a recompensa não mostra para que lado melhorar
+o impulso. Além disso, o RL dividiu a capacidade entre impulso e pegada, e a pegada sobre os pés caiu de 53 para 39.
+O checkpoint ficou só em `build/checkpoints/cogu_getup_v4` (não publicado).
+
 **Ideias testadas na pegada roteirizada** (120 pousos sobre os pés, `rest` em 5 s):
 
 | Pegada | Nominal | Escorregadio + fraco |
