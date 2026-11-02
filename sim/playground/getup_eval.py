@@ -54,7 +54,8 @@ def main(argv=None) -> int:
     if {"feet", "throw"} & set(args.starts):
         table = np.load(args.table or getup_starts.default_path(args.xml))
 
-    def set_start(kind: str):
+    def set_start(kind: str) -> tuple[float, int]:
+        """-> where the reference starts: (throw_t, throw_side) of a `throw` state, else (-1, 0)."""
         mujoco.mj_resetData(sim.m, sim.d)
         if kind == "drop":
             quat = rng.normal(size=4)
@@ -64,20 +65,24 @@ def main(argv=None) -> int:
             for _ in range(int(cfg.settle_time / sim.m.opt.timestep)):
                 mujoco.mj_step(sim.m, sim.d)
             sim.d.qvel[:] = 0.0
+            return -1.0, 0
         else:
             i = rng.choice(np.flatnonzero(table["kind"] == ("feet", "throw").index(kind)))
             sim.d.qpos[:], sim.d.qvel[:] = table["qpos"][i], table["qvel"][i]
             sim.d.ctrl[:] = sim.d.qpos[7:]
             mujoco.mj_forward(sim.m, sim.d)
+            if "throw_t" in table:
+                return float(table["throw_t"][i]), int(table["throw_side"][i])
+            return -1.0, 0
 
     if args.view:
         return view(sim, getup, set_start, args)
     for kind in args.starts:
         times, fails = [], 0
         for t in range(args.trials):
-            set_start(kind)
+            phase = set_start(kind)
             up0 = sim.d.site_xmat[sim.imu].reshape(3, 3)[2, 2]
-            getup.start()
+            getup.start(*phase)
             done_at = None
             for i in range(int(args.seconds / sim.dt)):
                 getup.step()
@@ -112,8 +117,7 @@ def view(sim, getup, set_start, args) -> int:
         while v.is_running():
             for kind in args.starts:
                 with v.lock():
-                    set_start(kind)
-                    getup.start()
+                    getup.start(*set_start(kind))
                 result = "trying"
                 t_end = None
                 for i in range(int(args.seconds / sim.dt)):

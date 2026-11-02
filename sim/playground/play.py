@@ -33,6 +33,7 @@ no pushes and no domain randomisation unless asked (`--delay`, `--noise`).
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
 from pathlib import Path
@@ -48,6 +49,7 @@ import numpy as np  # noqa: E402
 
 import cogu_env  # noqa: E402
 import cogu_getup  # noqa: E402
+import getup_starts  # noqa: E402
 from rollout import latest_checkpoint, load_policy  # noqa: E402
 
 REPO_ROOT = HERE.parents[1]
@@ -189,6 +191,8 @@ def getup_config(ckpt: Path):
     cfg.full_range_actions = "action_scale" not in saved
     if "reference" not in saved:                     # v1–v2: no scripted catch under the policy
         cfg.reference.enable = False
+    elif "throw" not in saved["reference"]:          # v3: catch only, no scripted throw
+        cfg.reference.throw = False
     return cfg
 
 
@@ -209,11 +213,23 @@ class GetupPolicy:
             self.ref_tilts = np.array(ref.tilts, float)
             legs = np.radians(np.array(ref.legs, float))
             self.ref_legs = np.column_stack([np.zeros((len(legs), 2)), legs])
+        self.throw = ref.enable and ref.get("throw", False)
+        if self.throw:                                   # v4: and a scripted throw from lying (cogu_getup)
+            self.throws = []
+            for side in ("back", "front"):
+                t = ref[f"throw_{side}"]
+                if not t.durations:
+                    path = getup_starts.THROWS[side]
+                    t = json.loads(path.read_text()) if path.exists() else dict(targets=[], durations=[], trigger=0.0)
+                self.throws.append(dict(keys=np.asarray(t["targets"], float), ends=np.cumsum(t["durations"]),
+                                        trigger=float(t["trigger"])) if t["durations"] else None)
         self.calm = 0.0
 
-    def start(self):
+    def start(self, throw_t: float = -1.0, throw_side: int = 0):
+        """`throw_t` >= 0: the reference is that far into throw `throw_side` (a getup_starts `throw` state)."""
         q = self.sim.d.qpos[7:].copy()
         self.ref = q.copy()
+        self.throw_t, self.throw_side, self.lying_t = throw_t, throw_side, 0.0
         held = np.clip((q - self.centre) / self.half, -1.0, 1.0)
         self.filtered = np.zeros_like(q) if self.cfg.reference.enable else held   # the target starts where q is
         self.last_act = np.zeros(self.sim.m.nu)
@@ -225,6 +241,9 @@ class GetupPolicy:
         gyro = d.sensordata[s.gyro_adr:s.gyro_adr + 3].copy()
         gravity = d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
         ref = [self.ref - s.default_pose] if self.cfg.reference.enable else []
+        if self.throw:
+            throwing = self.throw_t >= 0.0
+            ref.append([float(throwing), self.throw_t / self.throws[self.throw_side]["ends"][-1] if throwing else 0.0])
         return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act, *ref]
                               ).astype(np.float32)
 
@@ -236,7 +255,26 @@ class GetupPolicy:
         want = np.sign(tilt) * max(abs(tilt) - ref.lead, 0.0)
         leg = np.array([np.interp(want, self.ref_tilts, self.ref_legs[:, j]) for j in range(5)])
         step = ref.rate * s.dt
-        self.ref = self.ref + np.clip(np.concatenate([leg, leg]) - self.ref, -step, step)
+        catch = self.ref + np.clip(np.concatenate([leg, leg]) - self.ref, -step, step)
+        if not self.throw:
+            self.ref = catch
+            return
+        guess = 0 if tilt >= 0.0 else 1
+        throws = self.throws
+        lying = (throws[guess] is not None and self.throw_t < 0.0
+                 and abs(tilt) > max(ref.lie_tilt, throws[guess]["trigger"] + 5.0))
+        self.lying_t = self.lying_t + s.dt if lying else 0.0
+        if self.lying_t >= ref.lie_time:
+            self.throw_t, self.throw_side, self.lying_t = 0.0, guess, 0.0
+        if self.throw_t >= 0.0:
+            t = throws[self.throw_side]
+            if abs(tilt) <= t["trigger"] or self.throw_t >= t["ends"][-1]:
+                self.throw_t = -1.0
+            else:
+                self.ref = t["keys"][min(int(np.searchsorted(t["ends"], self.throw_t, side="right")), len(t["ends"]) - 1)]
+                self.throw_t += s.dt
+                return
+        self.ref = catch
 
     def step(self):
         s = self.sim

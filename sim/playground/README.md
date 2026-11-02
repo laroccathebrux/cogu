@@ -243,6 +243,54 @@ vir do RL. 1 M passos locais não mudam isso (12 de 30; 0 e 0).
 - Próximo passo para o impulso: pôr um impulso roteirizado (os assimétricos de `getup_search.py`) também na referência,
   como foi feito com a pegada.
 
+### Levantar v4: impulso roteirizado + pegada (2026-11-02)
+
+**Os impulsos salvos não servem no pé do CAD.** Seguidos da pegada do ambiente (gatilho por inclinação, como o
+ambiente faz, sem sensor de contato), os três impulsos "land" sobem até up_z 0,47–0,51 (~60°) e caem de costas: 0 de
+75 (3 impulsos × 5 gatilhos × 5 variações). Uma pegada mais rápida depois do impulso (3, 6, 20 rad/s) também não pega.
+
+**Busca nova, impulso + pegada juntos** (`getup_reference.py --search --full --path starts`): CMA-ES sobre o impulso
+nas 10 juntas (assimétrico, como `getup_search.py`) e a inclinação em que a pegada assume, seguida da pegada do
+ambiente (lead 10°, 1 rad/s), nas 3 variações de atrito / servo. A nota soma o tempo só sobre os pés (até 2 s); sem
+esse termo a busca preferia terminar de bruços. A busca salva o melhor a cada 20 gerações, e
+`getup_reference.py --view --seq <arquivo> --path starts` (mjpython) repete o impulso + pegada relendo o arquivo:
+dá para ver uma busca rodando.
+
+| Lado | Quadros | Gatilho | Pico up_z | Só nos pés | Levanta |
+|---|---|---|---|---|---|
+| Costas (`getup_sequences/throw_back.json`) | 4 (2,35 s) | 49° | 0,51–0,53 (~58°) | 0,5–0,6 s | 0 de 5 variações |
+| Bruços (`getup_sequences/throw_front.json`) | 4 (2,58 s) | 46° | 0,33 (~71°) | 0,6–0,7 s | 0 de 3 |
+
+Nenhum levanta sozinho, mas os dois põem o robô só sobre os pés por meio segundo; a correção do RL faz o resto, como
+na pegada (35 → 53 de 100 no v3).
+
+**Ambiente v4** (`cogu_getup.py`, `reference.throw`): deitado (|inclinação| acima de 80° e do gatilho + 5°) por
+0,3 s, a referência toca o impulso daquele lado (costas ou bruços pelo sinal da inclinação) quadro a quadro e passa
+para a pegada quando a inclinação cruza o gatilho ou o impulso acaba; se cair deitado de novo, tenta outra vez. As
+partidas "impulso" de `getup_starts.py` agora são instantâneos desses dois impulsos (75 estados) e guardam o momento
+do impulso (`throw_t`, `throw_side`), onde a referência do ambiente começa. Observação 48 (+ impulsando, fração do
+impulso). `play.py` e `getup_eval.py` espelham tudo; checkpoints v3 continuam rodando (sem impulso). Só a referência,
+256 episódios: deitado → impulsa em 72 % (antes da busca de bruços); sobre os pés 24 % do tempo em pé no passo 0
+(igual ao v3). 1 M passos locais: sobre os pés 2 de 10 no `getup_eval`, impulso e deitado 0.
+
+**Ideias testadas na pegada roteirizada** (120 pousos sobre os pés, `rest` em 5 s):
+
+| Pegada | Nominal | Escorregadio + fraco |
+|---|---|---|
+| como está | 39 % | 39 % |
+| pernas abertas (quadril roll para fora) 10° / 20° / 30° | 34 / 26 / 27 % | 35 / 25 / 22 % |
+| pontas para baixo 10° / 20° | 23 / 0 % | 26 / 0 % |
+| pontas para cima 10° / 20° | 0 / 0 % | 0 / 0 % |
+
+Fixas, pioram: sem roll no tornozelo, abrir a perna inclina a sola (apoio na borda); e caindo para trás o apoio já
+está no calcanhar. O RL pode usar as duas por um instante (ele soma até 1 rad em todas as juntas).
+`getup_reference.Reference(splay=...)` ficou para testes.
+
+**Por que precisa de impulso:** deitado de costas, varrendo quadril / joelho / tornozelo, a sola chega no máximo a
+6,8 cm do centro de massa (do lado das pernas: o quadril dobra só até 85°). Empurrar o chão gira o corpo em volta da
+bolha e o centro de massa fica atrás dos pés: força não resolve (servo ×2: pouso 0,61–0,64 contra 0,56–0,58), o corpo
+tem que passar por cima dos pés com velocidade. Quadril além de 85° mudaria isso (CAD).
+
 ### Estudo do pé (2026-11-01)
 
 `foot_study.py`: para cada sola (calcanhar para trás, ponta para a frente, largura para fora, em mm; `variants.py`),

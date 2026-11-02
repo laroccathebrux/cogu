@@ -10,9 +10,12 @@ policy that only starts lying never sees a landing, so the get-up env also start
   and a slow path leads to `rest`, from 15° up to the edge of that window, face up and face down, as many at each
   tilt. Each is set down on the floor at a random heading, with the legs a little uneven, held for 0.1 s and kept
   if still on the soles only.
-- `throw` (kind 1): snapshots every 20 ms of the open-loop throws found by `getup_search.py` (`getup_sequences/`),
-  played on this model with the search's friction / servo variants, while the pelvis is less than ~73° from
-  vertical (up_z > 0.3): rising, in the air or landing. The lying part before is what the env's drops give.
+- `throw` (kind 1): snapshots every 20 ms of the env's scripted throws (`getup_sequences/throw_back.json`,
+  `throw_front.json`, from `getup_reference.py --search --full`), played on this model with the search's friction /
+  servo variants until the catch takes over, while the pelvis is less than ~73° from vertical (up_z > 0.3): rising
+  or in the air. Each keeps its moment in the throw (`throw_t`, s) and side (`throw_side`, 0 back / 1 front), where
+  the env's reference starts. The lying part before is what the env's drops give. (Before 2026-11-02: snapshots of
+  all the open-loop throws of `getup_search.py` in `getup_sequences/`.)
 
 The env samples them (`start_mix`) and adds noise to the velocities.
 
@@ -40,6 +43,7 @@ import getup_static  # noqa: E402
 REPO_ROOT = HERE.parents[1]
 OUT_DIR = REPO_ROOT / "build" / "getup_starts"
 SEQUENCES = HERE / "getup_sequences"
+THROWS = {"back": SEQUENCES / "throw_back.json", "front": SEQUENCES / "throw_front.json"}   # the env's throws
 MIN_TILT = 15.0                # deg: below this the tilted-`rest` starts already cover it
 PER_SIDE = 800                 # feet poses kept per side
 THROW_UP = 0.3                 # up_z above which a throw snapshot is kept
@@ -112,25 +116,38 @@ def catch_path(maps: dict) -> tuple[np.ndarray, np.ndarray]:
     return np.array(tilts, float), np.array([nodes[t] for t in tilts], float)
 
 
-def throw_states(xml: str) -> list[tuple]:
+def throw_states(xml: str, catch: tuple[np.ndarray, np.ndarray]) -> list[tuple]:
+    """Snapshots of the env's throws, each -> (qpos, qvel, 1, tilt, throw_t, side). `catch`: catch_path's table."""
+    import getup_reference
+    path = [dict(tilt=float(t), q=[float(v) for v in q]) for t, q in zip(*catch)]
     out = []
-    for path in sorted(SEQUENCES.glob("*.json")):
-        spec = json.loads(path.read_text())
+    for side, (name, file) in enumerate(THROWS.items()):
+        if not file.exists():
+            print(f"  no {file.name}: no {name} throw", flush=True)
+            continue
+        spec = json.loads(file.read_text())
         n = 0
         for friction, force in getup_search.VARIANTS:
             sim = getup_search.Sim(Path(xml), friction, force)
+            ref = getup_reference.Reference(spec, [path], sim.rest_ctrl, spec["lead"], 0.0, spec["rate"],
+                                            spec["trigger"])
+            pelvis = sim.m.body("pelvis").id
+            sim.start(spec["pose"])
             every = int(round(THROW_EVERY / sim.dt))
-            count = [0]
-
-            def grab(s):
-                count[0] += 1
-                if count[0] % every == 0 and s.up() > THROW_UP:
-                    out.append((s.d.qpos.copy(), s.d.qvel.copy(), 1, float(np.degrees(np.arccos(s.up())))))
-
-            before = len(out)
-            sim.rollout(spec["pose"], np.array(spec["targets"]), np.array(spec["durations"]), frame_cb=grab)
-            n += len(out) - before
-        print(f"  {path.stem}: {n} snapshots", flush=True)
+            t = 0.0
+            while True:
+                target = ref.targets(t, getup_reference.tilt_deg(sim.d, pelvis), sim.up(), False)
+                if ref.caught:
+                    break
+                if sim.up() > THROW_UP:
+                    out.append((sim.d.qpos.copy(), sim.d.qvel.copy(), 1, float(np.degrees(np.arccos(sim.up()))),
+                                t, side))
+                    n += 1
+                sim.d.ctrl[:] = np.clip(target, sim.lo, sim.hi)
+                for _ in range(every):
+                    mujoco.mj_step(sim.m, sim.d)
+                t += THROW_EVERY
+        print(f"  {file.stem}: {n} snapshots", flush=True)
     return out
 
 
@@ -143,13 +160,14 @@ def main(argv=None) -> int:
     rng = np.random.default_rng(args.seed)
     print(f"start states for {Path(args.xml).name}")
     maps = {side: getup_static.stable_map(args.xml, side, max_tilt=90.0) for side in ("back", "front")}
-    states = feet_states(args.xml, rng, maps) + throw_states(args.xml)
     catch_tilt, catch_q = catch_path(maps)
-    qpos, qvel, kind, tilt = (np.array(x) for x in zip(*states))
+    states = [s + (-1.0, 0) for s in feet_states(args.xml, rng, maps)] + throw_states(args.xml, (catch_tilt, catch_q))
+    qpos, qvel, kind, tilt, throw_t, throw_side = (np.array(x) for x in zip(*states))
     out = Path(args.out) if args.out else default_path(args.xml)
     out.parent.mkdir(parents=True, exist_ok=True)
     np.savez(out, qpos=qpos.astype(np.float32), qvel=qvel.astype(np.float32), kind=kind.astype(np.int32),
-             tilt=tilt.astype(np.float32), catch_tilt=catch_tilt, catch_q=catch_q)
+             tilt=tilt.astype(np.float32), throw_t=throw_t.astype(np.float32),
+             throw_side=throw_side.astype(np.int32), catch_tilt=catch_tilt, catch_q=catch_q)
     for k, name in enumerate(("feet", "throw")):
         sel = kind == k
         if sel.any():

@@ -17,6 +17,10 @@ servo variant.
 `--search`: CMA-ES over a symmetric throw (both legs alike, hip yaw and roll 0: the plane the static path lives in)
 together with the catch's lead and trigger, scored on the whole get-up, catch included. The saved sequences were
 searched without the catch, on all ten joints, and twist the body sideways out of that plane.
+
+`--search --full --path starts`: the throw on all ten joints (asymmetric, as `getup_search.py`) and the |tilt| that
+starts the catch, followed by the get-up env's own catch (the path in the model's `getup_starts.py` table, lead 10°,
+1 rad/s): the throw the env's reference plays (2026-11-02). `--path starts` works without `--search` too.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 
 import getup_search  # noqa: E402
+import getup_starts  # noqa: E402
 
 CTRL_DT = 0.02
 AFTER = 3.0                    # s after the throw's last keyframe
@@ -47,7 +52,7 @@ class Reference:
     slowly (stepping straight to the next pose fell in 3 of 4 starts on the feet)."""
 
     def __init__(self, seq: dict, paths: list[list[dict]], rest: np.ndarray, lead: float, up_min: float,
-                 rate: float = 1.5):
+                 rate: float = 1.5, trigger: float | None = None, splay: float = 0.0):
         self.keys = np.asarray(seq["targets"], float)
         self.ends = np.cumsum(seq["durations"])
         nodes = {n["tilt"]: n["q"] for path in paths for n in path}
@@ -56,11 +61,16 @@ class Reference:
         legs = np.radians(np.array([nodes[t] for t in tilts], float))   # hip pitch, knee, ankle
         self.legs = np.column_stack([np.zeros((len(tilts), 2)), legs])  # hip yaw, roll = 0
         self.rest, self.lead, self.up_min, self.rate = rest, lead, up_min, rate
+        self.trigger = trigger         # deg: the catch starts once |tilt| is below this (as the env, which has no
+                                       # contact sensing), instead of on the soles above up_min
+        self.splay = splay             # deg of hip roll outwards (L +, R -) during the catch, fading in the last 30° to
+                                       # upright: a wider stance (no ankle roll: the soles tilt with it)
         self.caught = False
         self.prev: np.ndarray | None = None
 
     def targets(self, t: float, tilt: float, up: float, on_soles: bool) -> np.ndarray:
-        if not self.caught and (t >= self.ends[-1] or (on_soles and up >= self.up_min)):
+        rising = abs(tilt) <= self.trigger if self.trigger is not None else on_soles and up >= self.up_min
+        if not self.caught and (t >= self.ends[-1] or rising):
             self.caught = True
         if not self.caught:
             self.prev = self.keys[min(int(np.searchsorted(self.ends, t, side="right")), len(self.keys) - 1)]
@@ -68,6 +78,8 @@ class Reference:
         want = np.sign(tilt) * max(abs(tilt) - self.lead, 0.0)
         leg = np.array([np.interp(want, self.tilts, self.legs[:, j]) for j in range(5)])
         goal = np.concatenate([leg, leg])
+        roll = np.radians(self.splay) * min(abs(want) / 30.0, 1.0)
+        goal[1], goal[6] = goal[1] + roll, goal[6] - roll
         if self.prev is None:
             self.prev = goal
         step = self.rate * CTRL_DT
@@ -87,11 +99,12 @@ def attempt(sim: getup_search.Sim, pose: str, ref: Reference, frame_cb=None) -> 
     sim.start(pose)
     pelvis = m.body("pelvis").id
     every = int(round(CTRL_DT / sim.dt))
-    t, caught_at, peak = 0.0, None, sim.up()
+    t, caught_at, peak, soles = 0.0, None, sim.up(), 0.0
     total = ref.ends[-1] + AFTER
     while t < total:
         touching = {g for c in d.contact[: d.ncon] for g in c.geom} - {sim._floor}
         on_soles = bool(touching) and touching <= sim._soles
+        soles += CTRL_DT * (on_soles and sim.up() > 0.0)       # on the feet alone, pelvis above horizontal
         d.ctrl[:] = np.clip(ref.targets(t, tilt_deg(d, pelvis), sim.up(), on_soles), sim.lo, sim.hi)
         if ref.caught and caught_at is None:
             caught_at = t
@@ -103,7 +116,7 @@ def attempt(sim: getup_search.Sim, pose: str, ref: Reference, frame_cb=None) -> 
         t += CTRL_DT
     up, height, speed = sim.up(), float(d.qpos[2]), float(np.linalg.norm(d.qvel[:6]))
     return dict(success=up > getup_search.UPRIGHT_COS and height > getup_search.STAND_HEIGHT and speed < 0.3,
-                up=up, height=height, caught_at=caught_at, peak_up=peak)
+                up=up, height=height, caught_at=caught_at, peak_up=peak, soles_time=soles)
 
 
 def argv_has_defaults(args) -> bool:
@@ -114,7 +127,26 @@ def argv_has_defaults(args) -> bool:
 LEG = ("hip_pitch", "knee", "ankle")
 LEAD = (-10.0, 20.0)           # deg
 UP = (0.2, 0.8)
+TRIGGER = (40.0, 80.0)         # deg, --full: |tilt| below which the catch starts
 _W: dict = {}
+
+
+def starts_path(xml: str | Path) -> list[dict]:
+    """The env's catch path (the model's getup_starts table) in getup_static's path format."""
+    table = np.load(getup_starts.default_path(xml))
+    return [dict(tilt=float(t), q=[float(v) for v in q]) for t, q in zip(table["catch_tilt"], table["catch_q"])]
+
+
+def load_path(path: str, xml: str | Path) -> list[dict]:
+    return starts_path(xml) if path == "starts" else json.loads(Path(path).read_text())
+
+
+def decode_full(x: np.ndarray, k: int, sim: getup_search.Sim, pose: str) -> tuple[dict, float]:
+    """Parameters in [-1, 1] -> (sequence on all ten joints, as getup_search; catch trigger, deg)."""
+    targets, durations = sim.decode(x[:-1], k)
+    trigger = TRIGGER[0] + (TRIGGER[1] - TRIGGER[0]) * (np.clip(x[-1], -1.0, 1.0) + 1.0) / 2.0
+    seq = dict(pose=pose, targets=np.round(targets, 4).tolist(), durations=np.round(durations, 3).tolist())
+    return seq, float(trigger)
 
 
 def decode(x: np.ndarray, k: int, sim: getup_search.Sim) -> tuple[dict, float, float]:
@@ -136,17 +168,23 @@ def decode(x: np.ndarray, k: int, sim: getup_search.Sim) -> tuple[dict, float, f
 
 def _init_worker(xml: str, path_file: str):
     _W["sims"] = [getup_search.Sim(Path(xml), f, s) for f, s in getup_search.VARIANTS]
-    _W["path"] = json.loads(Path(path_file).read_text())
+    _W["path"] = load_path(path_file, xml)
 
 
 def _score(task) -> tuple[float, list]:
-    x, k = task
+    x, k, full, pose = task
     rows = []
     for sim in _W["sims"]:
-        seq, lead, up_min = decode(x, k, sim)
-        rows.append(attempt(sim, "back", Reference(seq, [_W["path"]], sim.rest_ctrl, lead, up_min)))
+        if full:
+            seq, trigger = decode_full(x, k, sim, pose)
+            ref = Reference(seq, [_W["path"]], sim.rest_ctrl, 10.0, 0.0, rate=1.0, trigger=trigger)
+        else:
+            seq, lead, up_min = decode(x, k, sim)
+            ref = Reference(seq, [_W["path"]], sim.rest_ctrl, lead, up_min)
+        rows.append(attempt(sim, pose, ref))
     score = float(np.mean([((1 + r["up"]) / 2) ** 2 + min(r["height"] / 0.2, 1.0) + 2.0 * r["success"]
-                           + 0.5 * ((1 + r["peak_up"]) / 2) ** 2 for r in rows]))
+                           + 0.5 * ((1 + r["peak_up"]) / 2) ** 2
+                           + (min(r["soles_time"], 2.0) if full else 0.0) for r in rows]))   # --full: time held
     return score - float(np.sum(np.maximum(np.abs(x) - 1.0, 0.0) ** 2)), rows
 
 
@@ -158,11 +196,18 @@ def search(args) -> int:
     with mp.get_context("spawn").Pool(args.workers, _init_worker, (args.xml, args.path)) as pool:
         for k in args.keyframes:
             for seed in range(args.seeds):
-                es = getup_search.CMAES(np.zeros(4 * k + 2), sigma=0.6, popsize=args.popsize, seed=seed)
+                x0 = np.zeros(k * (sim0.m.nu + 1) + 1 if args.full else 4 * k + 2)
+                if args.full and args.init:          # warm start: a saved throw (extra keyframes hold `rest`)
+                    spec = json.loads(Path(args.init).read_text())
+                    n = len(spec["durations"])
+                    targets = np.vstack([spec["targets"]] + [sim0.rest_ctrl] * max(k - n, 0))[:k]
+                    durations = np.concatenate([spec["durations"], [0.4] * max(k - n, 0)])[:k]
+                    x0[:-1] = np.clip(sim0.encode(targets, durations), -0.99, 0.99)
+                es = getup_search.CMAES(x0, sigma=args.sigma, popsize=args.popsize, seed=seed)
                 t0, run = time.time(), (-np.inf, None, None)
                 for g in range(args.generations):
                     xs = es.ask()
-                    out = pool.map(_score, [(x, k) for x in xs])
+                    out = pool.map(_score, [(x, k, args.full, args.pose) for x in xs])
                     es.tell(xs, [sc for sc, _ in out])
                     i = int(np.argmax([sc for sc, _ in out]))
                     if out[i][0] > run[0]:
@@ -171,19 +216,72 @@ def search(args) -> int:
                         r = run[2]
                         print(f"  K={k} seed={seed} gen {g:3d}  best {run[0]:.2f}  ok {sum(v['success'] for v in r)}/"
                               f"{len(r)}  up {' '.join(f'{v['up']:+.2f}' for v in r)}  peak "
-                              f"{max(v['peak_up'] for v in r):+.2f}  sigma {es.sigma:.2f}  {time.time() - t0:.0f} s",
+                              f"{max(v['peak_up'] for v in r):+.2f}  on feet "
+                              f"{' '.join(f'{v['soles_time']:.1f}' for v in r)} s  sigma {es.sigma:.2f}  {time.time() - t0:.0f} s",
                               flush=True)
+                        if run[0] > best[0]:
+                            save(args, sim0, run[0], run[1], run[2], k, f"K={k} seed={seed} gen {g}")
                     if all(v["success"] for v in run[2]) and es.sigma < 0.05:
                         break
                 if run[0] > best[0]:
                     best = (run[0], run[1], run[2], k)
-    score, x, rows, k = best
-    seq, lead, up_min = decode(x, k, sim0)
-    seq.update(score=score, success=[bool(r["success"]) for r in rows], lead=lead, up_min=up_min,
-               xml=Path(args.xml).name, path=Path(args.path).name)
+                    save(args, sim0, *best, note=f"K={k} seed={seed} done")
+    save(args, sim0, *best)
+    return 0
+
+
+def save(args, sim0: getup_search.Sim, score: float, x: np.ndarray, rows: list, k: int, note: str = "") -> None:
+    """Write the best sequence so far to --out (`--view` reloads it, so a running search can be watched)."""
+    if args.full:
+        seq, trigger = decode_full(x, k, sim0, args.pose)
+        seq.update(score=score, success=[bool(r["success"]) for r in rows], lead=10.0, rate=1.0, trigger=trigger,
+                   xml=Path(args.xml).name, path=Path(args.path).name)
+        catch = f"catch below {trigger:.0f}°"
+    else:
+        seq, lead, up_min = decode(x, k, sim0)
+        seq.update(score=score, success=[bool(r["success"]) for r in rows], lead=lead, up_min=up_min,
+                   xml=Path(args.xml).name, path=Path(args.path).name)
+        catch = f"lead {lead:.1f}°, catch at up_z {up_min:.2f}"
+    if note:
+        seq["searching"] = note
     Path(args.out).write_text(json.dumps(seq, indent=1))
-    print(f"best: {sum(seq['success'])}/{len(rows)} variants up, {k} keyframes, lead {lead:.1f}°, catch at up_z "
-          f"{up_min:.2f} -> {args.out}")
+    if not note:
+        print(f"best: {sum(seq['success'])}/{len(rows)} variants up, {k} keyframes, {catch} -> {args.out}")
+
+
+def view(args) -> int:
+    """Throw + catch on the nominal model in real time, again and again; the sequence is re-read every time."""
+    import time
+
+    import mujoco.viewer
+    sim = getup_search.Sim(Path(args.xml))
+    path = load_path(args.path, args.xml)
+    with mujoco.viewer.launch_passive(sim.m, sim.d) as v:
+        v.cam.distance, v.cam.elevation, v.cam.azimuth = 0.9, -15, 135
+        clock, count = [time.perf_counter()], [0]
+        every = int(round(CTRL_DT / sim.dt))
+
+        def show(s):
+            count[0] += 1
+            if count[0] % every:
+                return
+            if not v.is_running():
+                raise SystemExit
+            v.cam.lookat[:] = (s.d.qpos[0], s.d.qpos[1], 0.12)
+            v.sync()
+            wait = CTRL_DT - (time.perf_counter() - clock[0])
+            if wait > 0:
+                time.sleep(wait)
+            clock[0] = time.perf_counter()
+
+        while v.is_running():
+            seq = json.loads(Path(args.seq).read_text())
+            lead, up_min = seq.get("lead", args.lead[0]), seq.get("up_min", args.up[0])
+            ref = Reference(seq, [path], sim.rest_ctrl, lead, up_min, seq.get("rate", 1.5), seq.get("trigger"))
+            label = f"{Path(args.seq).stem}  {seq.get('searching', 'final')}  score {seq.get('score', 0):.2f}"
+            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "sequence", label))
+            r = attempt(sim, seq["pose"], ref, show)
+            print(f"{label}: {'UP' if r['success'] else 'fail'} (up_z {r['up']:+.2f})", flush=True)
     return 0
 
 
@@ -191,11 +289,18 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--xml", default=str(getup_search.GETUP_XML))
     ap.add_argument("--seq", default=str(HERE / "getup_sequences" / "back_land.json"))
-    ap.add_argument("--path", default=str(getup_search.REPO_ROOT / "build" / "getup_search" / "path_heel0.json"))
+    ap.add_argument("--path", default=str(getup_search.REPO_ROOT / "build" / "getup_search" / "path_heel0.json"),
+                    help="a getup_static.py path, or `starts`: the env's catch path for --xml")
     ap.add_argument("--lead", type=float, nargs="+", default=[0.0, 5.0, 10.0], help="deg")
     ap.add_argument("--up", type=float, nargs="+", default=[0.4, 0.5, 0.6], help="pelvis up_z that starts the catch")
     ap.add_argument("--video", help="write an .mp4 of the first lead / up on the nominal model")
+    ap.add_argument("--view", action="store_true", help="play --seq in the viewer, looping, reloading the file each "
+                    "time (watch a running --search's --out; macOS: run with mjpython)")
     ap.add_argument("--search", action="store_true", help="search a symmetric throw + catch (see above)")
+    ap.add_argument("--full", action="store_true", help="--search: the throw on all ten joints + the catch trigger")
+    ap.add_argument("--pose", default="back", choices=("back", "front"), help="--search: lying pose")
+    ap.add_argument("--init", help="--search --full: warm start from a saved throw")
+    ap.add_argument("--sigma", type=float, default=0.6)
     ap.add_argument("--keyframes", type=int, nargs="+", default=[3, 4])
     ap.add_argument("--generations", type=int, default=150)
     ap.add_argument("--popsize", type=int, default=32)
@@ -205,9 +310,12 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if args.search:
         return search(args)
-    seq, path = json.loads(Path(args.seq).read_text()), json.loads(Path(args.path).read_text())
+    if args.view:
+        return view(args)
+    seq, path = json.loads(Path(args.seq).read_text()), load_path(args.path, args.xml)
+    trigger = seq.get("trigger")                            # a --full throw: catch by tilt, at the env's settings
     if "lead" in seq and argv_has_defaults(args):           # a searched reference: its own catch settings
-        args.lead, args.up = [seq["lead"]], [seq["up_min"]]
+        args.lead, args.up = [seq["lead"]], [seq.get("up_min", 0.0)]
     variants = getup_search.VARIANTS + ((0.8, 0.85), (1.0, 0.7))
     sims = [getup_search.Sim(Path(args.xml), f, s) for f, s in variants]
     print(f"{Path(args.seq).stem} on {Path(args.xml).stem}, path {Path(args.path).stem} "
@@ -216,7 +324,7 @@ def main(argv=None) -> int:
         for up_min in args.up:
             rows = []
             for sim in sims:
-                ref = Reference(seq, [path], sim.rest_ctrl, lead, up_min)
+                ref = Reference(seq, [path], sim.rest_ctrl, lead, up_min, seq.get("rate", 1.5), trigger)
                 rows.append(attempt(sim, seq["pose"], ref))
             ok = sum(r["success"] for r in rows)
             print(f"  lead {lead:4.1f}°  catch at up_z {up_min:.2f}: {ok}/{len(rows)} up   "
@@ -236,7 +344,8 @@ def main(argv=None) -> int:
                 renderer.update_scene(s.d, cam)
                 frames.append(renderer.render())
 
-        attempt(sim, seq["pose"], Reference(seq, [path], sim.rest_ctrl, args.lead[0], args.up[0]), grab)
+        attempt(sim, seq["pose"], Reference(seq, [path], sim.rest_ctrl, args.lead[0], args.up[0],
+                                            seq.get("rate", 1.5), trigger), grab)
         imageio.mimwrite(args.video, frames, fps=30, codec="libx264", quality=8, macro_block_size=None)
         print(f"video: {args.video}")
     return 0

@@ -22,6 +22,13 @@ edge of the catch window to `rest`, face up and face down), `lead` degrees towar
 it at no more than `rate` rad/s per joint, and the target is the reference plus the action × `residual_scale` (1 rad).
 Zero action is `getup_reference.py`'s catch (36 % upright from the landings of the foot study, 23 % for `rest`
 alone). The reference minus `rest` is added to the observation (46).
+
+v4 (2026-11-02), `reference.throw`: the reference also throws. Lying (|tilt| above `lie_tilt` for `lie_time`), it
+plays the scripted throw for that side (`getup_sequences/throw_back.json` / `throw_front.json`, found by
+`getup_reference.py --search --full` together with this catch) keyframe by keyframe, and hands over to the catch once
+|tilt| is below the throw's trigger or the throw ends; if the robot ends up lying again, it throws again. The `throw`
+starts are snapshots of these throws, and start the reference at that moment of the throw. Observation (48): + throwing
+(0/1) and how far into the throw.
 """
 
 from __future__ import annotations
@@ -101,6 +108,11 @@ def default_config() -> config_dict.ConfigDict:
             residual_scale=1.0,        # rad: target = reference + action × this (a throw needs big ones)
             tilts=[],                  # catch path (deg), filled from the starts file and saved with the config
             legs=[],                   # hip pitch / knee / ankle (deg) at each tilt
+            throw=True,                # v4: scripted throws from lying (see above)
+            lie_tilt=80.0,             # deg: lying = |tilt| above this and above the throw's trigger + 5
+            lie_time=0.3,              # s lying before a throw starts
+            throw_back=config_dict.create(targets=[], durations=[], trigger=0.0),   # rad, s, deg: filled from
+            throw_front=config_dict.create(targets=[], durations=[], trigger=0.0),  # getup_sequences, saved too
         ),
         impl="jax",
         naconmax=None,
@@ -145,9 +157,37 @@ class CoguGetup(cogu_env.CoguJoystick):
             self._ref_tilts = jp.array(ref.tilts)
             legs = np.radians(np.array(ref.legs))
             self._ref_legs = jp.array(np.column_stack([np.zeros((len(ref.tilts), 2)), legs]))   # yaw, roll = 0
+            if ref.throw:
+                self._init_throws()
+        self._start_throw_t = jp.array(table["throw_t"]) if "throw_t" in table else jp.full(len(table["kind"]), -1.0)
+        self._start_throw_side = (jp.array(table["throw_side"]) if "throw_side" in table
+                                  else jp.zeros(len(table["kind"]), jp.int32))
 
-    def reference_step(self, data: mjx.Data, prev: jax.Array) -> jax.Array:
-        """The scripted catch: from the IMU's tilt, the next reference (as getup_reference.Reference)."""
+    def _init_throws(self):
+        """Throw tables, back (0) and front (1): keyframes (2, K, nu), their end times (2, K), triggers, present."""
+        ref = self._config.reference
+        for side in ("back", "front"):
+            cfg = ref[f"throw_{side}"]
+            path = getup_starts.THROWS[side]
+            if not cfg.targets and path.exists():
+                spec = json.loads(path.read_text())
+                cfg.targets, cfg.durations, cfg.trigger = spec["targets"], spec["durations"], spec["trigger"]
+        throws = [ref[f"throw_{side}"] for side in ("back", "front")]
+        k = max(max(len(t.durations) for t in throws), 1)
+        keys, ends = np.tile(np.asarray(self._default_pose), (2, k, 1)), np.full((2, k), 1e3)
+        for i, t in enumerate(throws):
+            if t.durations:
+                n = len(t.durations)
+                keys[i, :n] = np.asarray(t.targets)
+                keys[i, n:] = keys[i, n - 1]
+                ends[i] = np.concatenate([np.cumsum(t.durations), np.full(k - n, np.sum(t.durations))])
+        self._throw_keys, self._throw_ends = jp.array(keys), jp.array(ends)
+        self._throw_has = jp.array([bool(t.durations) for t in throws])
+        self._throw_trigger = jp.array([t.trigger for t in throws], dtype=jp.float32)
+
+    def reference_step(self, data: mjx.Data, info: dict[str, Any]) -> jax.Array:
+        """The scripted throw and catch: from the IMU's tilt, the next reference (as getup_reference.Reference).
+        Updates info's throw_t (s into the throw, -1 = catching), throw_side and lying_t."""
         ref = self._config.reference
         g = self.get_gravity(data)                     # body frame; up_z = -g_z, the pelvis x axis rises when g_x < 0
         tilt = jp.degrees(jp.arccos(jp.clip(-g[2], -1.0, 1.0))) * jp.where(g[0] <= 0.0, 1.0, -1.0)
@@ -155,7 +195,31 @@ class CoguGetup(cogu_env.CoguJoystick):
         leg = jax.vmap(lambda col: jp.interp(want, self._ref_tilts, col), in_axes=1)(self._ref_legs)
         goal = jp.concatenate([leg, leg])
         step = ref.rate * self.dt
-        return prev + jp.clip(goal - prev, -step, step)
+        catch = info["ref"] + jp.clip(goal - info["ref"], -step, step)
+        if not ref.throw:
+            return catch
+        tt, side = info["throw_t"], info["throw_side"]
+        guess = jp.where(tilt >= 0.0, 0, 1)           # face up: back throw; face down: front throw
+        lying = ((jp.abs(tilt) > jp.maximum(ref.lie_tilt, self._throw_trigger[guess] + 5.0))
+                 & self._throw_has[guess] & (tt < 0.0))
+        lying_t = jp.where(lying, info["lying_t"] + self.dt, 0.0)
+        start = lying_t >= ref.lie_time
+        tt, side = jp.where(start, 0.0, tt), jp.where(start, guess, side)
+        over = (jp.abs(tilt) <= self._throw_trigger[side]) | (tt >= self._throw_ends[side, -1])
+        throwing = (tt >= 0.0) & ~over
+        k = jp.minimum(jp.searchsorted(self._throw_ends[side], tt, side="right"), self._throw_ends.shape[1] - 1)
+        info["throw_t"] = jp.where(throwing, tt + self.dt, -1.0)
+        info["throw_side"] = side
+        info["lying_t"] = jp.where(start, 0.0, lying_t)
+        return jp.where(throwing, self._throw_keys[side, k], catch)
+
+    def _throw_obs(self, info: dict[str, Any]) -> list:
+        """Throwing (0/1) and the share of the throw done."""
+        if not (self._config.reference.enable and self._config.reference.throw):
+            return []
+        throwing = info["throw_t"] >= 0.0
+        done = jp.where(throwing, info["throw_t"] / self._throw_ends[info["throw_side"], -1], 0.0)
+        return [jp.stack([throwing.astype(jp.float32), done])]
 
     # ----------------------------------------------------------------- reset
     def _random_fallen_qpos(self, rng: jax.Array) -> jax.Array:
@@ -174,8 +238,8 @@ class CoguGetup(cogu_env.CoguJoystick):
         quat = mjx_math.axis_angle_to_quat(axis, jax.random.uniform(k_angle, minval=lo, maxval=hi))
         return self._init_q.at[3:7].set(mjx_math.quat_mul(quat, self._init_q[3:7]))
 
-    def _table_state(self, rng: jax.Array, indices: jax.Array) -> tuple[jax.Array, jax.Array]:
-        """A getup_starts state at a random place and heading, with noisy velocities."""
+    def _table_state(self, rng: jax.Array, indices: jax.Array) -> tuple[jax.Array, jax.Array, jax.Array]:
+        """A getup_starts state at a random place and heading, with noisy velocities; and its row."""
         k_i, k_yaw, k_xy, k_v = jax.random.split(rng, 4)
         i = jax.random.choice(k_i, indices)
         qpos, qvel = self._starts_qpos[i], self._starts_qvel[i]
@@ -189,14 +253,14 @@ class CoguGetup(cogu_env.CoguJoystick):
         scale = jp.concatenate([jp.full(6, body), jp.full(self._nu, joints)])
         qvel = qvel.at[:3].set(rot @ qvel[:3])          # world-frame linear velocity turns with the heading
         qvel = qvel + jax.random.uniform(k_v, qvel.shape, minval=-1.0, maxval=1.0) * scale
-        return qpos, qvel
+        return qpos, qvel, i
 
     def reset(self, rng: jax.Array) -> mjx_env.State:
         rng, k_start, k_q, k_tilt, k_feet, k_throw, k_delay = jax.random.split(rng, 7)
         # 0 stand, 1 tilt, 2 feet, 3 throw, 4 drop
         start_kind = jax.random.choice(k_start, len(START_KINDS), p=jp.array(self._config.start_mix))
-        feet_q, feet_v = self._table_state(k_feet, self._starts_feet)
-        throw_q, throw_v = self._table_state(k_throw, self._starts_throw)
+        feet_q, feet_v, _ = self._table_state(k_feet, self._starts_feet)
+        throw_q, throw_v, row = self._table_state(k_throw, self._starts_throw)
         qpos = jp.select([start_kind == 0, start_kind == 1, start_kind == 2, start_kind == 3],
                          [self._init_q, self._tilted_qpos(k_tilt), feet_q, throw_q], self._random_fallen_qpos(k_q))
         qvel = jp.select([start_kind == 2, start_kind == 3], [feet_v, throw_v], jp.zeros(self.mjx_model.nv))
@@ -218,7 +282,12 @@ class CoguGetup(cogu_env.CoguJoystick):
             "ctrl_history": jp.tile(start, (n_delay + 1, 1)),
             "action_delay": jax.random.randint(k_delay, (), 0, n_delay + 1),
             "start_kind": start_kind,
+            # the throw the reference is in (`throw` starts: that snapshot's moment); kept for the auto-resets
+            "start_throw_t": jp.where(start_kind == 3, self._start_throw_t[row], -1.0),
+            "start_throw_side": jp.where(start_kind == 3, self._start_throw_side[row], 0),
+            "lying_t": jp.zeros(()),
         }
+        info["throw_t"], info["throw_side"] = info["start_throw_t"], info["start_throw_side"]
         metrics = {f"reward/{k}": jp.zeros(()) for k in self._config.reward_config.scales.keys()}
         metrics["upright"] = jp.zeros(())
         for name in START_KINDS:     # per start kind: upright_<kind> / start_<kind> = upright share of those episodes
@@ -246,6 +315,9 @@ class CoguGetup(cogu_env.CoguJoystick):
             q = state.data.qpos[7:]
             state.info["action_filtered"] = jp.where(fresh, self._start_filtered(q), state.info["action_filtered"])
             state.info["ref"] = jp.where(fresh, q, state.info["ref"])
+            state.info["throw_t"] = jp.where(fresh, state.info["start_throw_t"], state.info["throw_t"])
+            state.info["throw_side"] = jp.where(fresh, state.info["start_throw_side"], state.info["throw_side"])
+            state.info["lying_t"] = jp.where(fresh, 0.0, state.info["lying_t"])
             state.info["ctrl_history"] = jp.where(fresh, jp.tile(q, (cfg.max_action_delay_steps + 1, 1)),
                                                   state.info["ctrl_history"])
             state.info["last_act"] = jp.where(fresh, jp.zeros(self._nu), state.info["last_act"])
@@ -253,7 +325,7 @@ class CoguGetup(cogu_env.CoguJoystick):
         filtered = a * action + (1.0 - a) * state.info["action_filtered"]
         state.info["action_filtered"] = filtered
         if cfg.reference.enable:
-            state.info["ref"] = self.reference_step(state.data, state.info["ref"])
+            state.info["ref"] = self.reference_step(state.data, state.info)
             targets = jp.clip(state.info["ref"] + filtered * cfg.reference.residual_scale, self._lowers, self._uppers)
         else:
             targets = jp.clip(self._default_pose + filtered * cfg.action_scale, self._lowers, self._uppers)
@@ -287,6 +359,7 @@ class CoguGetup(cogu_env.CoguJoystick):
         gyro, gravity = self.get_gyro(data), self.get_gravity(data)
         q, qd = data.qpos[7:], data.qvel[6:]
         ref = [info["ref"] - self._default_pose] if self._config.reference.enable else []
+        ref += self._throw_obs(info)
         state = jp.hstack([
             noisy(gyro, k1, noise.scales.gyro),
             noisy(gravity, k2, noise.scales.gravity),
