@@ -356,6 +356,26 @@ chanfro não resolve. Abaixar o eixo do quadril não compensa: 25 mm mais baixo 
 libera só até −120°, sem a margem de 3° do `check_envelopes`. Chegar a −120…−125° pede redesenhar a ligação
 roll → quadril (o braço de trás do U não pode descer atrás do eixo do quadril): decisão de CAD.
 
+**Levantar v5 no quadril −120° (2026-11-02, só no simulador).** `cogu_getup.py`, `reference.roll` (sem impulso):
+deitado por 0,3 s, a referência relaxa as pernas até `rest` (2,5 s a 1 rad/s), lê como o robô ficou (pelo IMU) e,
+de bruços ou de lado, toca o rolamento até ficar de costas (`getup_sequences/roll_front.json`, `roll_side.json` e
+o espelho); de costas, vai direto para a pegada, cujo caminho agora começa em 105° (ainda deitado). Caindo de costas
+de novo, a pegada continua; de outro jeito, recomeça. As partidas "impulso" viram instantâneos dos rolamentos
+(`getup_starts.py --mode roll`, o padrão), e a tabela de pés vai até 105°. Episódios de 15 s. Observação 48 (as
+mesmas duas entradas: em sequência, fração feita). Notebook: `HIP = -120`, `NAME = "cogu_getup_v5"`.
+
+Só a referência (ação zero), 512 episódios no MJX, em pé ao fim dos 15 s: em pé 100 %, inclinado 92 %, sobre os pés
+82 %, meio do rolamento 100 %, **queda 76 %** (v4: 0). Treino local de 1 M passos (ainda com episódios de 10 s:
+`train.py --episode-length` sobrescrevia o do env; agora o padrão é o do env), `getup_eval --seconds 15`, 10 de cada:
+sobre os pés 6, meio do rolamento 10, queda 6.
+
+```bash
+uv run python sim/playground/variants.py --hip-min -120
+uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml
+uv run python sim/playground/train.py --env getup --xml build/mjcf/variants/hip_-120.xml --steps 1000000
+uv run python sim/playground/getup_eval.py CKPT --xml build/mjcf/variants/hip_-120.xml --starts feet throw drop --seconds 15
+```
+
 ```bash
 uv run python sim/playground/hip_study.py                                     # tabela sem rolar
 uv run python sim/playground/hip_study.py --hip -120 --search-roll front      # e --search-roll left

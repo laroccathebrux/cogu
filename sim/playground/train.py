@@ -84,7 +84,8 @@ def parse_args(argv=None):
                     help="walk: velocity tracking (cogu_env); getup: stand up from a fall (cogu_getup)")
     ap.add_argument("--xml", default=None, help="default: the MJX model of the chosen env")
     ap.add_argument("--num-evals", type=int, default=4)
-    ap.add_argument("--episode-length", type=int, default=500)
+    ap.add_argument("--episode-length", type=int, default=None,
+                    help="steps; default: the env config's (walk 500 = 10 s, getup 750 = 15 s)")
     ap.add_argument("--unroll-length", type=int, default=20)
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--num-minibatches", type=int, default=4)
@@ -120,7 +121,7 @@ def main(argv=None) -> int:
     print(f"jax backend: {jax.default_backend()} devices: {jax.devices()}")
     if args.env == "getup":
         env_cfg = cogu_getup.default_config()
-        env_cfg.episode_length = args.episode_length
+        env_cfg.episode_length = args.episode_length or env_cfg.episode_length
         if args.start_mix:
             env_cfg.start_mix = tuple(args.start_mix)
         xml = args.xml or str(cogu_getup.GETUP_XML)
@@ -129,7 +130,7 @@ def main(argv=None) -> int:
         eval_env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
     else:
         env_cfg = cogu_env.default_config()
-        env_cfg.episode_length = args.episode_length
+        env_cfg.episode_length = args.episode_length or env_cfg.episode_length
         xml = args.xml or str(cogu_env.DEFAULT_XML)
         env = cogu_env.CoguJoystick(xml_path=xml, config=env_cfg)
         cogu_env.save_config(env_cfg, out)       # play.py / rollout.py rebuild the same dynamics from it
@@ -169,7 +170,7 @@ def main(argv=None) -> int:
         num_timesteps=args.steps,
         num_evals=args.num_evals,
         reward_scaling=1.0,
-        episode_length=args.episode_length,
+        episode_length=env_cfg.episode_length,
         normalize_observations=True,
         action_repeat=1,
         unroll_length=args.unroll_length,

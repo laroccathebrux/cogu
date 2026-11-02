@@ -40,6 +40,7 @@ import numpy as np  # noqa: E402
 
 import getup_reference  # noqa: E402
 import getup_search  # noqa: E402
+import getup_starts  # noqa: E402
 import getup_static  # noqa: E402
 import variants  # noqa: E402
 
@@ -47,7 +48,6 @@ OUT_DIR = getup_search.REPO_ROOT / "build" / "hip_study"
 CAD_HIP = -85.0
 CTRL_DT = getup_reference.CTRL_DT
 ROLL_HOLD = 2.0                # s of `rest` after a roll's keyframes
-MIRROR = np.array([-1.0, -1.0, 1.0, 1.0, 1.0])   # hip yaw and roll change sign from one leg to the other
 
 
 def model(hip: float) -> Path:
@@ -66,12 +66,6 @@ def paths(xml: Path) -> list[list[dict]]:
 
 def roll_file(pose: str, hip: float) -> Path:
     return OUT_DIR / f"roll_{pose}_{hip:g}.json"
-
-
-def mirrored(targets: np.ndarray) -> np.ndarray:
-    """A left-side-down roll -> the right-side-down one (L and R legs swapped, hip yaw and roll negated)."""
-    t = np.asarray(targets, float)
-    return np.concatenate([t[:, 5:] * MIRROR, t[:, :5] * MIRROR], axis=1)
 
 
 def _step(sim: getup_search.Sim, n: int, frame_cb=None) -> None:
@@ -104,7 +98,8 @@ def roll_over(sim: getup_search.Sim, rolls: dict, left_up: float, frame_cb=None)
         play(sim, *rolls["front"], frame_cb=frame_cb)
     elif lying == "side" and "left" in rolls:
         targets, durations = rolls["left"]
-        play(sim, targets if np.sign(sim.d.xmat[pelvis][7]) == left_up else mirrored(targets), durations, frame_cb)
+        same = np.sign(sim.d.xmat[pelvis][7]) == left_up
+        play(sim, targets if same else getup_starts.mirrored(targets), durations, frame_cb)
 
 
 def rise(sim: getup_search.Sim, path_list: list, seconds: float = 8.0, frame_cb=None) -> bool:

@@ -29,6 +29,16 @@ plays the scripted throw for that side (`getup_sequences/throw_back.json` / `thr
 |tilt| is below the throw's trigger or the throw ends; if the robot ends up lying again, it throws again. The `throw`
 starts are snapshots of these throws, and start the reference at that moment of the throw. Observation (48): + throwing
 (0/1) and how far into the throw.
+
+v5 (2026-11-02), `reference.roll`, on a model whose hip pitch reaches −120° (`variants.py --hip-min -120`; the CAD
+stops at −85°): with that hip the robot rises from its back slowly, with no throw (README, "Estudo do quadril"), so the
+reference stops throwing. Lying (|tilt| above `lie_tilt` for `lie_time`), the reference first relaxes the legs to
+`rest` at `rate` for `relax_time` (the egg then rolls flat), then reads how the robot lies: on the back it goes
+straight to the catch (whose path now starts at 105°, still lying); on the front or a side it plays the searched roll
+onto the back (`getup_sequences/roll_front.json`, `roll_side.json` or its mirror, `getup_starts.roll_table`), then
+the catch. Lying on the back again after a sequence, the catch keeps going; lying any other way, it starts over. The
+`throw` starts are snapshots of the rolls (`getup_starts.py --mode roll`). Observation (48): the same two values
+(in a sequence, share of it done). Episodes are 15 s (relax + roll + rise take ~10 s).
 """
 
 from __future__ import annotations
@@ -57,7 +67,7 @@ def default_config() -> config_dict.ConfigDict:
         env="getup",
         ctrl_dt=0.02,
         sim_dt=0.002,
-        episode_length=500,            # 10 s
+        episode_length=750,            # 15 s (v5: relax + roll + rise take ~10 s; was 10 s)
         action_repeat=1,
         action_filter_alpha=0.4,
         # target = rest pose + action × action_scale (rad), clipped to the joint range: zero action stands. The
@@ -108,11 +118,15 @@ def default_config() -> config_dict.ConfigDict:
             residual_scale=1.0,        # rad: target = reference + action × this (a throw needs big ones)
             tilts=[],                  # catch path (deg), filled from the starts file and saved with the config
             legs=[],                   # hip pitch / knee / ankle (deg) at each tilt
-            throw=True,                # v4: scripted throws from lying (see above)
+            throw=False,               # v4: scripted throws from lying (see above)
+            roll=True,                 # v5: relax, roll onto the back, rise (see above; needs the hip at -120°)
+            relax_time=2.5,            # s of legs going back to `rest` before reading how it lies
             lie_tilt=80.0,             # deg: lying = |tilt| above this and above the throw's trigger + 5
             lie_time=0.3,              # s lying before a throw starts
             throw_back=config_dict.create(targets=[], durations=[], trigger=0.0),   # rad, s, deg: filled from
             throw_front=config_dict.create(targets=[], durations=[], trigger=0.0),  # getup_sequences, saved too
+            roll_front=config_dict.create(targets=[], durations=[], hold=0.0),     # rad, s, s: filled from
+            roll_side=config_dict.create(targets=[], durations=[], hold=0.0),      # getup_sequences, saved too
         ),
         impl="jax",
         naconmax=None,
@@ -157,9 +171,15 @@ class CoguGetup(cogu_env.CoguJoystick):
             self._ref_tilts = jp.array(ref.tilts)
             legs = np.radians(np.array(ref.legs))
             self._ref_legs = jp.array(np.column_stack([np.zeros((len(ref.tilts), 2)), legs]))   # yaw, roll = 0
+            assert not (ref.throw and ref.get("roll", False)), "reference: throw or roll, not both"
             if ref.throw:
                 self._init_throws()
+            if ref.get("roll", False):
+                assert str(table.get("mode", "throw")) == "roll", f"{path}: throw starts; rebuild it (--mode roll)"
+                self._init_rolls()
         self._start_throw_t = jp.array(table["throw_t"]) if "throw_t" in table else jp.full(len(table["kind"]), -1.0)
+        if ref.enable and ref.get("roll", False):     # the table counts time into the roll; the env, relax + roll
+            self._start_throw_t = jp.where(self._start_throw_t >= 0.0, self._start_throw_t + ref.relax_time, -1.0)
         self._start_throw_side = (jp.array(table["throw_side"]) if "throw_side" in table
                                   else jp.zeros(len(table["kind"]), jp.int32))
 
@@ -185,6 +205,50 @@ class CoguGetup(cogu_env.CoguJoystick):
         self._throw_has = jp.array([bool(t.durations) for t in throws])
         self._throw_trigger = jp.array([t.trigger for t in throws], dtype=jp.float32)
 
+    def _init_rolls(self):
+        """Roll tables, back (none) / front / side / other side: keyframes (4, K, nu) and end times (4, K)."""
+        ref = self._config.reference
+        for name in ("front", "side"):
+            cfg = ref[f"roll_{name}"]
+            path = getup_starts.ROLLS[name]
+            if not cfg.targets and path.exists():
+                spec = json.loads(path.read_text())
+                cfg.targets, cfg.durations, cfg.hold = spec["targets"], spec["durations"], spec["hold"]
+        keys, ends = getup_starts.roll_table(np.asarray(self._default_pose),
+                                             {name: ref[f"roll_{name}"].to_dict() for name in ("front", "side")})
+        self._roll_keys, self._roll_ends = jp.array(keys), jp.array(ends)
+        self._throw_ends = self._roll_ends                 # for _throw_obs
+        # which side of the pelvis is up in the searched side roll (getup_search's "left" pose: +y up)
+        self._roll_side_up = 1.0
+
+    def _roll_step(self, data: mjx.Data, info: dict[str, Any], tilt: jax.Array, catch: jax.Array) -> jax.Array:
+        """v5: relax, roll onto the back, catch. info's throw_t: s into relax + roll (-1 = catching); throw_side: the
+        roll (0 back = none, 1 front, 2 side, 3 other side), read when the relax ends; rolled: a sequence ended."""
+        ref = self._config.reference
+        g = self.get_gravity(data)
+        xz, yz = -g[0], -g[1]                             # pelvis x / y axes, world z component
+        on_back = xz > jp.maximum(jp.abs(yz), 0.5)
+        lay = jp.select([on_back, -xz > jp.maximum(jp.abs(yz), 0.5), yz * self._roll_side_up > 0.5,
+                         yz * self._roll_side_up < -0.5], [0, 1, 2, 3], 0)
+        tt, side = info["throw_t"], info["throw_side"]
+        lying = (jp.abs(tilt) > ref.lie_tilt) & (tt < 0.0) & (~on_back | (info["rolled"] < 0.5))
+        lying_t = jp.where(lying, info["lying_t"] + self.dt, 0.0)
+        start = lying_t >= ref.lie_time
+        tt = jp.where(start, 0.0, tt)
+        relaxing = (tt >= 0.0) & (tt < ref.relax_time)
+        side = jp.where(relaxing, lay, side)             # read how it lies until the relax ends
+        tr = tt - ref.relax_time
+        rolling = (tr >= 0.0) & (tr < self._roll_ends[side, -1])
+        k = jp.minimum(jp.searchsorted(self._roll_ends[side], tr, side="right"), self._roll_ends.shape[1] - 1)
+        step = ref.rate * self.dt
+        relax = info["ref"] + jp.clip(self._default_pose - info["ref"], -step, step)
+        active = relaxing | rolling
+        info["rolled"] = jp.where((tt >= 0.0) & ~active, 1.0, info["rolled"])
+        info["throw_t"] = jp.where(active, tt + self.dt, -1.0)
+        info["throw_side"] = side
+        info["lying_t"] = jp.where(start, 0.0, lying_t)
+        return jp.where(relaxing, relax, jp.where(rolling, self._roll_keys[side, k], catch))
+
     def reference_step(self, data: mjx.Data, info: dict[str, Any]) -> jax.Array:
         """The scripted throw and catch: from the IMU's tilt, the next reference (as getup_reference.Reference).
         Updates info's throw_t (s into the throw, -1 = catching), throw_side and lying_t."""
@@ -196,6 +260,8 @@ class CoguGetup(cogu_env.CoguJoystick):
         goal = jp.concatenate([leg, leg])
         step = ref.rate * self.dt
         catch = info["ref"] + jp.clip(goal - info["ref"], -step, step)
+        if ref.get("roll", False):
+            return self._roll_step(data, info, tilt, catch)
         if not ref.throw:
             return catch
         tt, side = info["throw_t"], info["throw_side"]
@@ -214,11 +280,14 @@ class CoguGetup(cogu_env.CoguJoystick):
         return jp.where(throwing, self._throw_keys[side, k], catch)
 
     def _throw_obs(self, info: dict[str, Any]) -> list:
-        """Throwing (0/1) and the share of the throw done."""
-        if not (self._config.reference.enable and self._config.reference.throw):
+        """Throwing (0/1) and the share of the throw done (v5: of relax + roll)."""
+        ref = self._config.reference
+        roll = ref.get("roll", False)
+        if not (ref.enable and (ref.throw or roll)):
             return []
         throwing = info["throw_t"] >= 0.0
-        done = jp.where(throwing, info["throw_t"] / self._throw_ends[info["throw_side"], -1], 0.0)
+        total = self._throw_ends[info["throw_side"], -1] + (ref.relax_time if roll else 0.0)
+        done = jp.where(throwing, info["throw_t"] / jp.maximum(total, 1e-3), 0.0)
         return [jp.stack([throwing.astype(jp.float32), done])]
 
     # ----------------------------------------------------------------- reset
@@ -286,6 +355,7 @@ class CoguGetup(cogu_env.CoguJoystick):
             "start_throw_t": jp.where(start_kind == 3, self._start_throw_t[row], -1.0),
             "start_throw_side": jp.where(start_kind == 3, self._start_throw_side[row], 0),
             "lying_t": jp.zeros(()),
+            "rolled": jp.zeros(()),
         }
         info["throw_t"], info["throw_side"] = info["start_throw_t"], info["start_throw_side"]
         metrics = {f"reward/{k}": jp.zeros(()) for k in self._config.reward_config.scales.keys()}
@@ -318,6 +388,7 @@ class CoguGetup(cogu_env.CoguJoystick):
             state.info["throw_t"] = jp.where(fresh, state.info["start_throw_t"], state.info["throw_t"])
             state.info["throw_side"] = jp.where(fresh, state.info["start_throw_side"], state.info["throw_side"])
             state.info["lying_t"] = jp.where(fresh, 0.0, state.info["lying_t"])
+            state.info["rolled"] = jp.where(fresh, 0.0, state.info["rolled"])
             state.info["ctrl_history"] = jp.where(fresh, jp.tile(q, (cfg.max_action_delay_steps + 1, 1)),
                                                   state.info["ctrl_history"])
             state.info["last_act"] = jp.where(fresh, jp.zeros(self._nu), state.info["last_act"])

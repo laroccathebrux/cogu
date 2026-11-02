@@ -193,6 +193,8 @@ def getup_config(ckpt: Path):
         cfg.reference.enable = False
     elif "throw" not in saved["reference"]:          # v3: catch only, no scripted throw
         cfg.reference.throw = False
+    if "reference" in saved and "roll" not in saved["reference"]:   # v1–v4: no relax + roll (v5)
+        cfg.reference.roll = False
     return cfg
 
 
@@ -214,6 +216,15 @@ class GetupPolicy:
             legs = np.radians(np.array(ref.legs, float))
             self.ref_legs = np.column_stack([np.zeros((len(legs), 2)), legs])
         self.throw = ref.enable and ref.get("throw", False)
+        self.roll = ref.enable and ref.get("roll", False)
+        if self.roll:                                    # v5: relax, roll onto the back, catch (cogu_getup)
+            specs = {}
+            for name in ("front", "side"):
+                t = ref[f"roll_{name}"]
+                path = getup_starts.ROLLS[name]
+                specs[name] = (t.to_dict() if t.durations else json.loads(path.read_text()) if path.exists()
+                               else dict(targets=[], durations=[], hold=0.0))
+            self.roll_keys, self.roll_ends = getup_starts.roll_table(sim.default_pose, specs)
         if self.throw:                                   # v4: and a scripted throw from lying (cogu_getup)
             self.throws = []
             for side in ("back", "front"):
@@ -229,7 +240,9 @@ class GetupPolicy:
         """`throw_t` >= 0: the reference is that far into throw `throw_side` (a getup_starts `throw` state)."""
         q = self.sim.d.qpos[7:].copy()
         self.ref = q.copy()
-        self.throw_t, self.throw_side, self.lying_t = throw_t, throw_side, 0.0
+        if self.roll and throw_t >= 0.0:                 # the table counts time into the roll; the env relax + roll
+            throw_t += self.cfg.reference.relax_time
+        self.throw_t, self.throw_side, self.lying_t, self.rolled = throw_t, throw_side, 0.0, False
         held = np.clip((q - self.centre) / self.half, -1.0, 1.0)
         self.filtered = np.zeros_like(q) if self.cfg.reference.enable else held   # the target starts where q is
         self.last_act = np.zeros(self.sim.m.nu)
@@ -244,6 +257,10 @@ class GetupPolicy:
         if self.throw:
             throwing = self.throw_t >= 0.0
             ref.append([float(throwing), self.throw_t / self.throws[self.throw_side]["ends"][-1] if throwing else 0.0])
+        elif self.roll:
+            throwing = self.throw_t >= 0.0
+            total = max(self.roll_ends[self.throw_side, -1] + self.cfg.reference.relax_time, 1e-3)
+            ref.append([float(throwing), self.throw_t / total if throwing else 0.0])
         return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act, *ref]
                               ).astype(np.float32)
 
@@ -256,6 +273,9 @@ class GetupPolicy:
         leg = np.array([np.interp(want, self.ref_tilts, self.ref_legs[:, j]) for j in range(5)])
         step = ref.rate * s.dt
         catch = self.ref + np.clip(np.concatenate([leg, leg]) - self.ref, -step, step)
+        if self.roll:
+            self._roll_step(-g[0], -g[1], tilt, catch, step)
+            return
         if not self.throw:
             self.ref = catch
             return
@@ -275,6 +295,32 @@ class GetupPolicy:
                 self.throw_t += s.dt
                 return
         self.ref = catch
+
+    def _roll_step(self, xz: float, yz: float, tilt: float, catch: np.ndarray, step: float):
+        """cogu_getup.CoguGetup._roll_step: relax, roll onto the back (front / side / other side), catch."""
+        ref, dt = self.cfg.reference, self.sim.dt
+        on_back = xz > max(abs(yz), 0.5)
+        lay = 0 if on_back else 1 if -xz > max(abs(yz), 0.5) else 2 if yz > 0.5 else 3 if yz < -0.5 else 0
+        lying = abs(tilt) > ref.lie_tilt and self.throw_t < 0.0 and (not on_back or not self.rolled)
+        self.lying_t = self.lying_t + dt if lying else 0.0
+        if self.lying_t >= ref.lie_time:
+            self.throw_t, self.lying_t = 0.0, 0.0
+        tt = self.throw_t
+        relaxing = 0.0 <= tt < ref.relax_time
+        if relaxing:
+            self.throw_side = lay
+        ends = self.roll_ends[self.throw_side]
+        tr = tt - ref.relax_time
+        rolling = 0.0 <= tr < ends[-1]
+        if relaxing:
+            self.ref = self.ref + np.clip(self.sim.default_pose - self.ref, -step, step)
+        elif rolling:
+            self.ref = self.roll_keys[self.throw_side, min(int(np.searchsorted(ends, tr, side="right")), len(ends) - 1)]
+        else:
+            self.ref = catch
+        if tt >= 0.0 and not (relaxing or rolling):
+            self.rolled = True
+        self.throw_t = tt + dt if (relaxing or rolling) else -1.0
 
     def step(self):
         s = self.sim
