@@ -434,6 +434,23 @@ relaxa ou rola, a ação da política é ignorada (o filtro recomeça do zero na
 fazem o mesmo, e checkpoints sem a chave (v5, v6) seguem corrigindo tudo. A partir do v6, 30 M passos
 (notebook: `NAME = "cogu_getup_v7"`, `RESTORE = .../cogu_getup_v6`).
 
+**Resultado do Colab (30 M passos, T4, ~54 min): a diferença entre os modelos quase fechou.** Publicado em
+`checkpoints/cogu_getup_v7/`. `getup_eval.py --seconds 15`, 30 de cada (sobre os pés / meio do rolamento / queda) e
+100 quedas `--seed 1`:
+
+| | modelo de treino | 100 quedas | modelo completo | 100 quedas |
+|---|---|---|---|---|
+| v6 | 30 / 30 / 30 | **98** | 15 / 25 / 8 | 31 |
+| v6 `--scripted-residual off` | 25 / 30 / 25 | | 19 / 27 / 23 | 63 |
+| **v7** | 24 / 30 / 26 | 84 | **23 / 29 / 23** | **63** |
+| só a referência | 20 / 30 / 25 | 81 | 17 / 30 / 22 | 67 |
+
+De 98 contra 31 (v6) para 84 contra 63. Nas quedas o v7 fica no nível da referência sozinha nos dois modelos (o
+limite agora são os rolamentos em malha aberta, que falham em ~1/3 das quedas); sobre os pés ele ajuda (23 contra 17
+no completo). No modelo de treino, a maioria das quedas que falham termina em pé (up_z 0,96–0,98, pélvis 208 mm)
+mas sem chegar a `rest` parado a tempo; no completo, metade fica deitada de bruços (pélvis 64 mm). O v6 continua
+melhor no modelo de treino; o v7 é o que transfere, e é o mais perto do robô real.
+
 ```bash
 uv run python sim/playground/variants.py --hip-min -120
 uv run python sim/playground/getup_starts.py --xml build/mjcf/variants/hip_-120.xml
