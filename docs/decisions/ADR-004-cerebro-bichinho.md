@@ -50,9 +50,10 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
    - **sentar**: agachado sobre os pés, a pelve desce de 205 para ~165 mm e o corpo inclina 35° para trás, olhando
      para cima como um pet sentado (ele continua vendo e conversando). A bunda não chega ao chão: o bloco dos servos do
      quadril fica ~96 mm abaixo do tambor, e mesmo sentar sobre esse bloco (pelve a 98 mm, estável) não é alcançável:
-     o agachado mais baixo deixa o bloco 46 mm acima do chão, e quadril e joelho já estão no limite. Chegar lá pede um
-     joelho que dobre ~160° (hoje 90°), mudança de CAD para depois do primeiro protótipo (`sim/playground/README.md`,
-     "Sentar e deitar");
+     o agachado mais baixo deixa o bloco 46 mm acima do chão, e quadril e joelho já estão no limite. O estudo de
+     2026-11-03 (`sim/playground/README.md`, "Estudo: sentar no chão") mostrou que abrir as faixas do quadril (−130°)
+     e do tornozelo (+82°), já livres no CAD, leva a ~1 cm do chão; encostar e levantar de volta pede o quadril em
+     ~−145°, o que mexe no quadril em volta do servo do roll;
    - **deitar**: deita de costas devagar (no máximo 0,1 m/s), seguindo de trás para a frente o caminho que o levantar
      usa para subir, e no fim estica as pernas para o corpo ficar reto (90°); para levantar, o levantar v8;
    - **empurrar a bola**: primeiro com a marcha atual (anda até ficar atrás da bola, alinha e anda contra ela); uma
@@ -64,8 +65,8 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
 - Deitar **de costas** (o celular olha para o teto). Alternativas: de bruços põe o celular no chão; "chocando"
   (pernas dobradas para trás sob o corpo, canelas no chão, corpo em pé, torque zero) existe como pose parada, mas
   não achei ainda uma transição que chegue nela sem tombar para trás.
-- Sentar agachado e inclinado 35° para trás (olhando para cima, para o rosto de quem está em pé perto dele). Sentar
-  com a bunda no chão só com um joelho novo (dobrando ~160°).
+- Sentar agachado e inclinado 35° para trás (olhando para cima, para o rosto de quem está em pé perto dele). Ou quase
+  no chão (bloco a ~1 cm) abrindo as faixas, ou no chão de verdade com o quadril indo até ~−145°.
 - Qual LLM local e qual na nuvem: decidido medindo tempo até a primeira palavra e qualidade das respostas.
 - Bola: tamanho 5 (22 cm, ~430 g) é o pedido; no treino também 3 e 4. O Cogu tem ~40 cm de altura (câmera a 38,6 cm).
 

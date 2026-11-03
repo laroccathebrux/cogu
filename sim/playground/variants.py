@@ -6,13 +6,15 @@
     uv run python sim/playground/variants.py --neck 60                  # -> build/mjcf/variants/neck_60.xml
     uv run python sim/playground/variants.py --heel 45 --toe 20 --width 15   # -> .../heel_45_toe_20_width_15.xml
     uv run python sim/playground/variants.py --hip-min -120             # -> build/mjcf/variants/hip_-120.xml
+    uv run python sim/playground/variants.py --hip-min -130 --ankle-max 82   # -> .../hip_-130_ankle_82.xml
 
 `--heel MM`: the foot sole box lengthened MM millimetres backwards (a longer heel), both feet. It widens the tilt at
 which the robot can stand on its feet alone (README, "Calcanhar"). `--toe MM`: the same at the front (a longer toe).
 `--width MM`: each sole MM wider, outwards only (the feet are 9 mm apart at rest). `--knee-max DEG`: the knees fold further than the
 CAD's 90° (joint range and servo target range); whether the leg shells allow it is a CAD question. `--servo X`: every
 servo's torque limit times X (a stronger servo). `--hip-min DEG`: the hip pitch swings the thigh further back than
-the CAD's −85° (joint range and servo target range), as `--knee-max`. `--neck DEG`: the phone's mass (NECK_MASS, phone + guard share) moves
+the CAD's −85° (joint range and servo target range), as `--knee-max`. `--ankle-max DEG`: the ankle flexes further
+than the CAD's +45° (toes up towards the shin), the same way. `--neck DEG`: the phone's mass (NECK_MASS, phone + guard share) moves
 to a head body on a pitch hinge with the same servo, ±DEG; it swings the phone forward and back to shift the centre of
 mass, as Open Duck Mini's head does. The bubble's collision shape stays on the pelvis: a first-order test of the mass
 shift, not of a moving shell. The neck is the 11th joint and actuator (after the legs). If a variant wins, the change
@@ -39,8 +41,9 @@ NECK_COM = (0.012, 0.0, 0.12)  # m, pelvis frame: the phone's centre (PHONE_X ah
 
 
 def name(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, neck: float = 0.0,
-         toe: float = 0.0, width: float = 0.0, hip_min: float | None = None) -> str:
-    plain = knee_max is None and servo == 1.0 and not neck and not toe and not width and hip_min is None
+         toe: float = 0.0, width: float = 0.0, hip_min: float | None = None, ankle_max: float | None = None) -> str:
+    plain = (knee_max is None and servo == 1.0 and not neck and not toe and not width and hip_min is None
+             and ankle_max is None)
     parts = [f"heel_{heel:g}"] if heel or plain else []
     if toe:
         parts.append(f"toe_{toe:g}")
@@ -50,6 +53,8 @@ def name(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, n
         parts.append(f"knee_{knee_max:g}")
     if hip_min is not None:
         parts.append(f"hip_{hip_min:g}")
+    if ankle_max is not None:
+        parts.append(f"ankle_{ankle_max:g}")
     if servo != 1.0:
         parts.append(f"servo_{servo:g}")
     if neck:
@@ -59,7 +64,7 @@ def name(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, n
 
 def build(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, neck: float = 0.0,
           src: Path = GETUP_XML, out: Path | None = None, toe: float = 0.0, width: float = 0.0,
-          hip_min: float | None = None) -> Path:
+          hip_min: float | None = None, ankle_max: float | None = None) -> Path:
     spec = mujoco.MjSpec.from_file(str(src))
     if not Path(spec.meshdir).is_absolute():          # the variant lives in another folder
         spec.meshdir = str((src.parent / spec.meshdir).resolve())
@@ -77,6 +82,9 @@ def build(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, 
         if hip_min is not None:
             spec.joint(f"{side}_hip_pitch").range[0] = deg(hip_min)
             spec.actuator(f"{side}_hip_pitch").ctrlrange[0] = math.radians(hip_min)
+        if ankle_max is not None:
+            spec.joint(f"{side}_ankle").range[1] = deg(ankle_max)
+            spec.actuator(f"{side}_ankle").ctrlrange[1] = math.radians(ankle_max)
     for a in spec.actuators:
         a.forcerange = np.asarray(a.forcerange) * servo
     if neck:
@@ -103,7 +111,7 @@ def build(heel: float = 0.0, knee_max: float | None = None, servo: float = 1.0, 
             key.qpos = list(key.qpos) + [0.0]
             key.ctrl = list(key.ctrl) + [0.0]
     spec.compile()
-    out = out or OUT_DIR / f"{name(heel, knee_max, servo, neck, toe, width, hip_min)}.xml"
+    out = out or OUT_DIR / f"{name(heel, knee_max, servo, neck, toe, width, hip_min, ankle_max)}.xml"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(spec.to_xml())
     return out
@@ -120,13 +128,14 @@ def main(argv=None) -> int:
     ap.add_argument("--width", type=float, default=0.0, help="mm added to the outer side of each sole")
     ap.add_argument("--knee-max", type=float, default=None, help="deg, knee fold limit (CAD: 90)")
     ap.add_argument("--hip-min", type=float, default=None, help="deg, hip pitch backward limit (CAD: -85)")
+    ap.add_argument("--ankle-max", type=float, default=None, help="deg, ankle flex limit, toes up (CAD: 45)")
     ap.add_argument("--servo", type=float, default=1.0, help="servo torque limit scale")
     ap.add_argument("--neck", type=float, default=0.0, help="deg, a neck pitch joint carrying the phone (0 = none)")
     ap.add_argument("--src", default=str(GETUP_XML))
     ap.add_argument("--out", default=None)
     args = ap.parse_args(argv)
     print(build(args.heel, args.knee_max, args.servo, args.neck, Path(args.src), Path(args.out) if args.out else None,
-                args.toe, args.width, args.hip_min))
+                args.toe, args.width, args.hip_min, args.ankle_max))
     return 0
 
 

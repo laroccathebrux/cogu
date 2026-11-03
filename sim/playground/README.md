@@ -673,10 +673,49 @@ esticadas para a frente (quadril −120°, joelho 0°, tornozelo −65°, 30° p
 - busca aleatória de sequências de 1 a 3 poses (cada junta em toda a faixa, 0,1–0,8 s cada): nenhuma de 1.500
   partindo do agachado e nenhuma de 2.000 partindo de deitado de costas termina sentada no bloco (todas terminam de
   costas ou de frente).
-Com o joelho dobrando até ~160° (hoje 90°: as bochechas da canela batem na carcaça da coxa a ~95°), o agachado
-equilibrado chegaria com o bloco a 9 mm do chão. Isso é refazer o joelho, então fica como mudança de CAD para depois do
-primeiro protótipo. Mais baixo que hoje também piora: agachado a 148–149 mm (25–35° para trás) completa só 7–12 de 20
+O que mudaria isso está em "Estudo: sentar no chão" logo abaixo. Mais baixo que hoje também piora: agachado a 148–149 mm (25–35° para trás) completa só 7–12 de 20
 ciclos com empurrões de 0,6 m/s, contra 20/20 do sentar de 165 mm.
+
+**Estudo: sentar no chão (2026-11-03).** O pedido era um joelho que dobrasse ~160°. Mas o joelho não é a melhor
+alavanca. O agachado mais baixo com as solas no chão e o centro de massa sobre elas (margem ≥ 10 mm), por limite de cada
+junta (`getup_static` estático, modelo de treino):
+
+| bloco do quadril acima do chão | tornozelo até 45° (hoje) | 70° | 82° |
+|---|---|---|---|
+| quadril até −120° (hoje) | 45 mm | 32 mm | 23 mm |
+| quadril até −130° | 34 mm | 21 mm | **11 mm** |
+| joelho até 160° (quadril −120°, tornozelo 45°) | 9 mm | | |
+
+No CAD, com sólidos exatos (`cad/check_envelopes.py`), o quadril já fica livre até −135° e o tornozelo até ±85°. As
+faixas de hoje (−120° e +45°) eram escolha do simulador, não limite das peças. O caminho de 35° até quadril −130°,
+joelho 10°, tornozelo 82° também está livre (só com o joelho a 90° e o tornozelo acima de ~60° o pé encosta na coxa).
+Então, **sem peça nova**, só abrindo as faixas, ele desce até a pelve a 104 mm com o bloco a ~1 cm do chão, em 4 s
+(agachado de hoje e depois as pernas desdobrando para a frente). De lá levanta pelo mesmo caminho, nos dois modelos.
+`variants.py --hip-min -130 --ankle-max 82` faz o modelo.
+
+O problema é encostar de verdade. Com essas faixas, a pose com o bloco e as solas no chão deixa o centro de massa sobre
+o calcanhar (−1 mm). Ele senta (pelve a 98–101 mm, inclinado 25–28°), mas o mesmo caminho ao contrário o derruba de
+frente. Nenhuma de 600 sequências aleatórias o levantou dali, e o levantar v8 também não (10 s). Para o centro de massa
+ficar sobre os pés com o bloco no chão, o quadril precisa ir mais para trás:
+
+| quadril até | centro de massa à frente do calcanhar, com o bloco no chão |
+|---|---|
+| −130° | −1 mm |
+| −135° | +4 mm |
+| −140° | +11 mm |
+| −145° | +16 mm |
+
+A partir de −140°, a coxa bate no braço traseiro do U do roll (onde fica o 688ZZ) e no link de giro, que seguram o servo
+do roll. Liberar isso é mexer de novo no quadril (como no ADR-003), agora em volta do servo do roll.
+
+Com o quase-no-chão, empurrões de até 0,4–0,6 m/s fazem ele completar sentar e levantar 13–18 de 20 vezes (o sentar
+de hoje faz 20/20). Um empurrão para trás o põe sentado no bloco, de onde ele não levanta sozinho.
+
+Achado no caminho: no modelo completo, com o quadril além de −125°, o contorno convexo da coxa encosta no link de giro
+(~20 N) e empurra o corpo. Com sólidos exatos, a coxa fica livre até −135°. Para este estudo, a variante
+`full_hip_-130_ankle_82_noyawthigh.xml` exclui esse par de contato.
+
+![hoje, quase no chão e no chão](../../docs/renders/sim_sit_floor_study.png)
 
 **Deitar.** De costas, pelo caminho da pegada do levantar tocado ao contrário: a cada passo a inclinação (do IMU)
 escolhe a pose do caminho 10° mais deitada, alcançada a 1 rad/s. Toda pose desse caminho se segura sozinha, então ele
