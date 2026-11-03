@@ -181,6 +181,7 @@ class Behavior:
         self.log: list[tuple[float, str, str]] = []      # (t, who, text)
         self.seen_for = self.lost_for = self.looking_for = 0.0
         self.sat_by_itself = False
+        self.queue: list[tuple[str, list[str]]] = []    # moves asked for after the current one: (tool, arguments)
         pet.behavior = self
         pet.brain.command("livre")
 
@@ -195,6 +196,7 @@ class Behavior:
             return self.say("Não entendi.")
         tool, arg = cmd
         self.sat_by_itself = False
+        self.queue.clear()                                # a new order replaces what was lined up
         self.seen_for = self.lost_for = self.looking_for = 0.0
         fn = getattr(self.tools, tool)
         return self.say(fn(arg) if arg is not None or tool in ("ir_ate", "onde_esta", "lembrar_lugar") else fn())
@@ -203,6 +205,9 @@ class Behavior:
         dt = self.pet.dt
         for label, xy in self.pet.perception.objects():
             self.memory.observe(label, xy, t)
+        if self.queue and self.pet.mode == "walking" and self.pet.brain.mode in ("livre", "fica"):
+            name, args = self.queue.pop(0)                # the last move ended: the next one
+            self.say(getattr(self.tools, name)(*args))
         if not self.autonomy:
             return
         brain, pet = self.pet.brain, self.pet

@@ -12,6 +12,7 @@ MuJoCo, antes do app em Swift. Tudo que o celular vai ver sai da câmera `phone_
 | `pet.py` | Os comandos simples (pare, fica, vem, siga) no apartamento, a pessoa que anda, os cenários de teste e o viewer |
 | `memory.py` | A memória do mundo: o que está onde, quando foi visto, para que serve; lugares com nome; o resumo em texto |
 | `behavior.py` | O motor de comportamento: as ferramentas que a conversa vai chamar, os comandos falados e o que ele faz sozinho |
+| `conversation.py` | A conversa: frases fixas sem LLM; o resto vai a um modelo de linguagem com as ferramentas e o resumo da memória |
 
 ## Apartamento
 
@@ -240,10 +241,61 @@ Revisável:
 - lugares só por nome dado pela voz. Salas automáticas, separando o mapa por portas, ficam para quando houver mais
   de um cômodo para testar.
 
+## Conversa
+
+`conversation.py` põe um modelo de linguagem em cima das ferramentas. O que a pessoa diz segue esta ordem:
+
+1. **Frase fixa curta** (até 4 palavras além de "Cogu"), ou qualquer frase que comece com "pare": roda na hora,
+   sem modelo. Ninguém espera um LLM para parar (ADR-004, item 6), e isso funciona sem internet.
+2. **Qualquer outra frase**: vai ao modelo, com as ferramentas do `behavior.Tools` como funções e o resumo da
+   memória como contexto.
+   - Ele nunca mexe em motor; só chama ferramentas.
+   - Movimentos pedidos na mesma fala entram numa fila e rodam um depois do outro ("vai até o sofá e depois volta
+     aqui").
+   - Uma chamada repetida na mesma fala é ignorada.
+   - Para o modelo vai só texto: o resumo e o que foi dito.
+3. **Sem modelo** (fora do ar ou lento demais): "Agora não consigo pensar; só entendo os comandos simples."
+
+No simulador o modelo é local, pelo Ollama deste Mac; não há chave de API configurada. No celular, o mesmo laço
+chama o modelo da Apple no aparelho (Foundation Models, com estas ferramentas) e, quando ele não der conta, o LLM da
+plataforma de agentes da ElevenLabs. Neste Mac, o modelo da Apple responde `modelNotReady`: o Apple Intelligence
+ainda não terminou de baixar o modelo.
+
+Diálogo de teste: 9 falas, das quais 7 vão ao modelo e 2 (onde fica a mesa, pare) são frases fixas. A memória vem
+da sessão anterior. Uma fala conta como certa quando o modelo chama as ferramentas certas e nenhuma outra.
+
+| Modelo (Ollama) | Certas | Tempo por fala | O que errou |
+|---|---|---|---|
+| qwen2.5:3b, do tamanho do modelo da Apple | 6 de 9 | ~1 s | "vai até o sofá e depois volta" virou ir_ate(sofá) e ir_ate(mesa); "vem comigo" e "descansa" ficaram só no texto ("segui você", "descansando"), sem chamar nada; diz que chegou quando só começou a andar |
+| qwen3-vl:8b | 6 de 9 (as 3 que faltam são timeouts de 120 s) | 1 a 4 min | acerta a fila sofá → vir e o "vem comigo" (seguir); lento demais junto com o simulador, mesmo com o contexto limitado a 8 mil tokens |
+| qwen3.6:35b | 4 de 9 | 20 s ou mais, com timeouts | sem "pensar" antes, fala que vai e não chama ferramenta; pensando, chama, mas fica lento demais neste Mac junto com o simulador |
+
+Em todos, nenhuma queda nem toque, e as frases fixas ("pare", "onde fica a mesa?") responderam na hora. A
+conclusão por enquanto é que um modelo do tamanho do da Apple conversa bem, mas não é confiável para escolher
+ferramentas em frases livres. Para agir, as frases fixas e um modelo maior na nuvem continuam necessários; é isso que
+o ADR-004 já previa (local primeiro, nuvem quando o local ficar ruim). O teste fica como régua para comparar o modelo
+da Apple quando ele estiver pronto, e o da ElevenLabs quando houver chave.
+
+```bash
+uv run python sim/brain/conversation.py --test                         # o diálogo com o qwen2.5:3b
+uv run python sim/brain/conversation.py --test --model qwen3-vl:8b
+uv run mjpython sim/brain/conversation.py --memory build/brain_memory  # viewer: converse no terminal
+```
+
+No viewer o modelo pensa numa thread separada, e o robô continua andando enquanto isso.
+
+Revisável:
+- frases fixas só até 4 palavras: frases maiores com uma palavra de comando ("vem comigo" no fim) dependem do
+  modelo;
+- o modelo do simulador é um substituto. A escolha real, Apple no aparelho mais ElevenLabs na nuvem, é medida com
+  este mesmo diálogo.
+
 ## Próximos passos
 
 1. ~~Navegação e comandos com percepção perfeita (posição verdadeira da pessoa e da bola): siga, pare, vem, fica.~~
    Feito (acima).
 2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
 3. ~~Memória do mundo e motor de comportamento.~~ Feito (acima).
-4. Conversa (ElevenLabs e o modelo local) por cima, chamando as mesmas ferramentas.
+4. ~~Conversa por cima, chamando as mesmas ferramentas.~~ O laço está feito (acima), com um modelo local do Ollama.
+   Falta ligar o modelo da Apple (quando o Apple Intelligence terminar de baixar) e a ElevenLabs (voz e LLM; precisa
+   da conta e da chave).

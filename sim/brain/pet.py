@@ -391,6 +391,7 @@ class Pet:
         self.brain = Brain(self.perception, self.dt, vmax)
         self.pose = play.PosePolicy(self.sim, None)               # sit / lie down: the scripted reference
         self.behavior = None                                      # behavior.py hooks in here
+        self.conversation = None                                  # and conversation.py
         self.lie_when_seated = False
         self.mode, self.falls, self.t = "walking", 0, 0.0
         robot = np.array([self.m.body_rootid[self.m.geom_bodyid[g]] == 1 for g in range(self.m.ngeom)])
@@ -661,6 +662,7 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
 
     print("type: siga / pare / vem / fica" + (" / livre / senta / deita / levanta / vai até a bola / cadê a bola? / "
           "o que você vê? / aqui é a sala / o que você sabe?" if pet.behavior else "")
+          + (" or anything else (the language model answers)" if pet.conversation else "")
           + " (and Enter); andar / parar move the person; End = pare")
     shown = 0
     with mujoco.viewer.launch_passive(pet.m, pet.d, key_callback=on_key) as v:
@@ -675,6 +677,9 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                         pet.person.walk(TOUR)
                     elif text == "parar":
                         pet.person.walk([])
+                    elif text and pet.conversation is not None:          # the model thinks in a thread
+                        pet.conversation.lock = v.lock()
+                        threading.Thread(target=pet.conversation.hear, args=(text,), daemon=True).start()
                     elif text:
                         reply = pet.say(text)
                         if pet.behavior is None:                             # (with one, its log prints it)
