@@ -10,6 +10,8 @@ MuJoCo, antes do app em Swift. Tudo que o celular vai ver sai da câmera `phone_
 | `navigation.py` | Mapa do chão, planejador e seguidor de caminho que viram o comando da marcha (vx, vy, wz) |
 | `perception.py` | O que o cérebro sabe: o estado verdadeiro, ou só o celular (mapa do LiDAR, pose do ARKit, pessoa e bola pela câmera) |
 | `pet.py` | Os comandos simples (pare, fica, vem, siga) no apartamento, a pessoa que anda, os cenários de teste e o viewer |
+| `memory.py` | A memória do mundo: o que está onde, quando foi visto, para que serve; lugares com nome; o resumo em texto |
+| `behavior.py` | O motor de comportamento: as ferramentas que a conversa vai chamar, os comandos falados e o que ele faz sozinho |
 
 ## Apartamento
 
@@ -174,10 +176,74 @@ Revisável:
 - a detecção da pessoa é a segmentação do simulador com falhas sorteadas, não uma rede rodando sobre a imagem
   renderizada.
 
+## Memória do mundo e motor de comportamento
+
+Em cima da navegação e da percepção do celular, `behavior.py` junta três coisas.
+
+**Memória do mundo** (`memory.py`):
+- Guarda cada coisa que os detectores veem: sofá, mesa, porta, rack, TV, planta, bola e pessoa. Cada uma tem posição,
+  quando foi vista pela primeira e pela última vez e para que serve ("a mesa: baixa demais para passar por baixo").
+- A bola e a pessoa ficam na última posição vista; os móveis, na média das vezes que foram vistos.
+- Os lugares ganham nome por voz ("aqui é a sala"). O lugar de uma coisa é o lugar com nome mais perto que a enxerga.
+- `summary()` é o texto que o modelo de linguagem vai ler, e é só isso que pode ir para a nuvem: "Estou na sala, em
+  pé, seguindo você. A pessoa está a 0,8 m, à minha frente. Lembro de: a bola está perto da mesa, na sala (vi há
+  37 s): dá para empurrar e brincar; ...".
+- A memória e o mapa do LiDAR são salvos em disco (`build/brain_memory/`, fora do git) e carregados na sessão
+  seguinte. No celular, o referencial volta com o mapa salvo do ARKit; no simulador, cada sessão começa no mesmo
+  referencial.
+
+**Ferramentas** (`Tools`): o que o modelo de linguagem vai chamar no passo 4, cada uma devolvendo o que o Cogu diz.
+São elas: `parar`, `ficar`, `vir`, `seguir`, `livre`, `procurar`, `ir_ate(alvo)`, `sentar`, `deitar`, `levantar`,
+`onde_esta(coisa)`, `o_que_vejo`, `lembrar_lugar(nome)` e `resumo`. Até lá, frases fixas chegam a elas sem LLM: "vai
+até a bola", "vai para o corredor", "cadê a bola?", "o que você vê?", "aqui é a cozinha", "o que você sabe?",
+"senta", "deita", "levanta", "livre", "me procura".
+
+**Sozinho**, só quando está livre e nunca sob uma ordem como "fica":
+- com a pessoa à vista, vira para ela e, depois de 40 s assim, senta para descansar;
+- sentado por conta própria, levanta quando a perde de vista por 3 s;
+- com a pessoa fora de vista por 15 s, vai procurá-la: primeiro onde a viu por último, depois girando. Se não a
+  achar em 15 s, diz "Não te achei".
+
+Mudanças por baixo:
+- "deita" passa antes pelo sentar, como no `pose_eval`. Direto de pé ele tombava para trás em 1,7 s.
+- "ir" para no ponto livre mais perto da coisa quando nada a menos de 0,5 m está livre.
+- Uma mesa vista pelo celular bloqueia o contorno inteiro no mapa. A câmera fica na altura do tampo: vê a borda,
+  os pés e o chão por baixo, e o mapa achava que dava para passar por baixo dela.
+
+Resultados (2026-11-03, `uv run python sim/brain/behavior.py --test`, só o celular):
+
+| Cenário | Resultado |
+|---|---|
+| memória depois da volta (siga) | erro das coisas: TV 0,13 m, bola 0,13, mesa 0,14, planta 0,16, porta 0,27, rack 0,22, sofá 0,37 (o lado que ele vê, não o meio) |
+| "cadê a bola?" | "A bola está perto da mesa, na sala (vi há 37 s)." |
+| "vai até a bola" | chega em 7,6 s, a 0,59 m da bola |
+| "vai para o corredor" (nomeado na volta) | chega em 13,3 s (x 2,71 m, na porta do corredor) |
+| "vai até o sofá" | chega em 17,7 s, a ~0,2 m da frente do sofá |
+| sessão seguinte, memória e mapa do disco | "vai para o corredor" sem vê-lo do início: 15,5 s |
+| livre, a pessoa parada à vista | senta sozinho aos 44 s |
+| a pessoa passa por trás dele, fora da vista | levanta 14,5 s depois e sai procurando 7,6 s depois; acha a pessoa em 18,8 s, a 1,0 m |
+| senta, vem (sentado), deita, levanta | sentado em 4 s; de pé e chega em 10,6 s; deitado e esticado em 8 s; de pé com o levantar v8 em 6,2 s |
+
+Nenhuma queda nem toque. Com `--perception true` a memória é exata, mas a autonomia de procurar não aparece: ele
+vê através das paredes e nunca perde a pessoa.
+
+```bash
+uv run python sim/brain/behavior.py --test                              # os cenários (~3 min)
+uv run mjpython sim/brain/behavior.py                                   # viewer: converse no terminal
+uv run mjpython sim/brain/behavior.py --memory build/brain_memory       # com a memória da última sessão
+```
+
+Revisável:
+- tempos da autonomia: senta depois de 40 s, procura depois de 15 s sem ver a pessoa e desiste depois de 15 s;
+- a posição de um móvel é a média dos lados que ele viu (o sofá fica ~0,4 m para a frente do meio). Para ir até
+  ele e dizer onde está, isso basta;
+- lugares só por nome dado pela voz. Salas automáticas, separando o mapa por portas, ficam para quando houver mais
+  de um cômodo para testar.
+
 ## Próximos passos
 
 1. ~~Navegação e comandos com percepção perfeita (posição verdadeira da pessoa e da bola): siga, pare, vem, fica.~~
    Feito (acima).
 2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
-3. Memória do mundo e motor de comportamento.
+3. ~~Memória do mundo e motor de comportamento.~~ Feito (acima).
 4. Conversa (ElevenLabs e o modelo local) por cima, chamando as mesmas ferramentas.

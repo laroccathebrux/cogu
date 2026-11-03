@@ -153,15 +153,17 @@ class Planner:
         pts[0] = self.start.copy()
         return self.smooth(pts)
 
-    def best_near(self, target, ring: tuple[float, float], see_from: FloorMap | None = None, los: bool = True):
-        """The cheapest reachable cell `ring[0]`–`ring[1]` m from `target` that has a line of sight to it (through
-        `see_from`'s static obstacles: the person is not one; `los` False: any), as (cell, path cost m) or
-        (None, inf)."""
+    def best_near(self, target, ring: tuple[float, float], see_from: FloorMap | None = None, los: bool = True,
+                  closest: bool = False):
+        """The cheapest reachable cell `ring[0]`–`ring[1]` m from `target` (`closest`: the one nearest to the target)
+        that has a line of sight to it (through `see_from`'s static obstacles: the person is not one; `los` False:
+        any), as (cell, path cost m) or (None, inf)."""
         xs, ys = self.fmap.cell_centres()
         r2 = (xs - target[0]) ** 2 + (ys - target[1]) ** 2
         cand = (r2 >= ring[0] ** 2) & (r2 <= ring[1] ** 2) & self.passable & np.isfinite(self.dist)
         see = see_from or self.fmap
-        for flat in np.argsort(np.where(cand, self.dist, np.inf), axis=None):
+        key = r2 + 1e-3 * self.dist if closest else self.dist
+        for flat in np.argsort(np.where(cand, key, np.inf), axis=None):
             cell = np.unravel_index(flat, self.dist.shape)
             if not cand[cell]:
                 break

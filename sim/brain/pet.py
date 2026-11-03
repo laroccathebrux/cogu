@@ -170,6 +170,7 @@ class Brain:
         self.going = False            # vem / siga: walking to the goal (else waiting, facing the person)
         self.turning = False          # facing: turning in place (hysteresis)
         self.searching = False        # the person is out of sight where they were last: look around
+        self.goal = None              # ir: (xy, ring m, label)
         self.cmd = np.zeros(3)
         self.reflex = 0               # steps the reflex held the robot back
         self.t = 0.0
@@ -203,21 +204,28 @@ class Brain:
         if cmd is None:
             self.said = f"? '{text}'"
             return None
-        self.mode, self.path, self.next_plan = cmd, None, 0.0
+        return self.command(cmd)
+
+    def command(self, cmd: str, goal=None) -> str:
+        """pare / fica / vem / siga; livre (no order: the behaviour engine may act); procura (find the person, stop
+        near them); ir (to `goal` = (xy, ring m, label))."""
+        self.mode, self.goal, self.path, self.next_plan = cmd, goal, None, 0.0
         self.going = self.turning = self.searching = False
         if cmd == "pare":
             self.cmd[:] = 0.0         # no ramp: stop now
-        self.said = cmd
+        self.said = cmd if goal is None else f"{cmd}: {goal[2]}"
         return cmd
 
     def step(self, t: float) -> np.ndarray:
         self.t = t
         x, y, yaw = self.pose()
         want = np.zeros(3)
-        if self.mode == "fica":
+        if self.mode in ("fica", "livre"):
             want[2] = self.face(x, y, yaw)
-        elif self.mode in ("vem", "siga"):
+        elif self.mode in ("vem", "siga", "procura"):
             want = self.go(t, x, y, yaw)
+        elif self.mode == "ir":
+            want = self.go_goal(t, x, y, yaw)
         if want[2] != 0.0 and want[0] == 0.0:
             want = self.step_out(want, x, y, yaw)
         if self.mode != "pare":
@@ -271,7 +279,31 @@ class Brain:
                 return self.search(x, y, yaw)
             if self.mode == "vem":
                 self.mode, self.said = "fica", "vem: cheguei"
+            elif self.mode == "procura":
+                self.mode, self.said = "livre", "procura: achei"
             return np.array([0.0, 0.0, self.face(x, y, yaw)])
+        self.turning = False
+        return np.array([vx, 0.0, wz])
+
+    def go_goal(self, t: float, x: float, y: float, yaw: float) -> np.ndarray:
+        """ir: walk to the goal (a place or a remembered thing), then livre."""
+        xy, ring, label = self.goal
+        if t >= self.next_plan or self.path is None:
+            self.next_plan = t + REPLAN
+            self.planner.plan(self.dynamic_map(), (x, y))
+            cell, _ = self.planner.best_near(xy, ring, los=False)
+            if cell is None:                  # nothing free that close: the free spot nearest to it, within 1.5 m
+                cell, _ = self.planner.best_near(xy, (ring[0], 1.5), los=False, closest=True)
+            if cell is None:
+                self.command("livre")
+                self.said = f"{label}: não acho caminho"
+                return np.zeros(3)
+            self.path = self.planner.path_to(cell)
+        vx, wz, remaining = self.follower.command(self.path, x, y, yaw) if len(self.path) > 1 else (0.0, 0.0, 0.0)
+        if remaining < 0.05:
+            self.command("livre")
+            self.said = f"cheguei: {label}"
+            return np.zeros(3)
         self.turning = False
         return np.array([vx, 0.0, wz])
 
@@ -307,13 +339,16 @@ class Brain:
         if seen and self.mode == "vem" and dist <= COME_RING[1]:
             self.mode, self.said, self.path = "fica", "vem: já estou aqui", None
             return
+        if seen and self.mode == "procura" and dist <= FOLLOW_START:
+            self.mode, self.said, self.path = "livre", "procura: achei", None
+            return
         if not seen and dist < 0.5:   # where they were last, and they aren't there
             self.searching, self.path = False, None
             self.search(x, y, yaw=self.pose()[2])
             return
         self.planner.plan(self.dynamic_map(), (x, y))
         if seen:
-            ring = COME_RING if self.mode == "vem" else FOLLOW_RING
+            ring = COME_RING if self.mode == "vem" else FOLLOW_RING      # siga and procura
             cell, _ = self.planner.best_near(p, ring, see_from=self.perception.floor())
         else:                         # out of sight: go where they were last (or were heading)
             cell, _ = self.planner.best_near(p, (0.0, 0.4), los=False)
@@ -354,6 +389,9 @@ class Pet:
         else:
             self.perception = TruePerception(self.m, self.d)
         self.brain = Brain(self.perception, self.dt, vmax)
+        self.pose = play.PosePolicy(self.sim, None)               # sit / lie down: the scripted reference
+        self.behavior = None                                      # behavior.py hooks in here
+        self.lie_when_seated = False
         self.mode, self.falls, self.t = "walking", 0, 0.0
         robot = np.array([self.m.body_rootid[self.m.geom_bodyid[g]] == 1 for g in range(self.m.ngeom)])
         static = (self.m.geom_bodyid == 0) & (self.m.geom_type != mujoco.mjtGeom.mjGEOM_PLANE)
@@ -362,11 +400,37 @@ class Pet:
         self.bumps = 0                 # control steps with the robot touching furniture, a wall or the person
 
     def say(self, text: str) -> str | None:
+        if self.behavior is not None:
+            return self.behavior.hear(text)
         return self.brain.hear(text)
+
+    def posture(self, kind: str):
+        """'sit', 'lie' or 'stand' (from sitting: the pose script back to `rest`; from lying: get-up v8)."""
+        self.lie_when_seated = kind == "lie"
+        if self.mode == "walking" and kind in ("sit", "lie"):
+            self.brain.cmd[:] = 0.0
+            self.pose.start(1)                # lying down starts from the seat, as in pose_eval
+            self.mode = "pose"
+        elif self.mode == "pose":
+            if kind == "stand" and self.pose.lying:
+                self.getup.start()
+                self.mode = "getting up"
+            elif not self.pose.lying:
+                self.pose.mode = {"stand": 0, "sit": 1, "lie": 2}[kind]
+
+    def posture_state(self) -> str:
+        if self.mode == "getting up":
+            return "levantando"
+        if self.mode == "pose":
+            return {"lying": "deitado", "lying down": "deitando", "sitting": "sentado", "sitting down": "sentando",
+                    "standing up": "levantando"}[self.pose.state()]
+        return "em pé"
 
     def step(self):
         self.person.step(self.dt, avoid=self.d.xpos[1, :2], fmap=self.walls)
         self.perception.update(self.t, self.dt)
+        if self.behavior is not None:
+            self.behavior.step(self.t)
         if self.mode == "walking":
             self.sim.command[:] = self.brain.step(self.t)
             self.sim.step()
@@ -374,10 +438,23 @@ class Pet:
                 self.falls += 1
                 self.getup.start()
                 self.mode = "getting up"
+        elif self.mode == "pose":
+            if self.lie_when_seated and self.pose.state() == "sitting":
+                self.pose.mode, self.lie_when_seated = 2, False
+            self.pose.step()
+            if self.pose.ready():                         # back in `rest`: the walker takes over
+                self.sim.handover()
+                self.brain.cmd[:] = 0.0
+                self.mode = "walking"
+            elif self.pose.fallen():
+                self.falls += 1
+                self.getup.start()
+                self.mode = "getting up"
         else:
             self.getup.step()
             if self.getup.ready():
                 self.sim.handover()
+                self.brain.cmd[:] = 0.0
                 self.mode = "walking"
         c = self.d.contact[:self.d.ncon]
         g1, g2 = c.geom1, c.geom2
@@ -582,7 +659,10 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
         if key == play.KEY_END:
             heard.put("pare")
 
-    print("type: siga / pare / vem / fica (and Enter); andar / parar move the person; End = pare")
+    print("type: siga / pare / vem / fica" + (" / livre / senta / deita / levanta / vai até a bola / cadê a bola? / "
+          "o que você vê? / aqui é a sala / o que você sabe?" if pet.behavior else "")
+          + " (and Enter); andar / parar move the person; End = pare")
+    shown = 0
     with mujoco.viewer.launch_passive(pet.m, pet.d, key_callback=on_key) as v:
         v.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
         v.cam.fixedcamid = pet.m.camera("overview").id
@@ -596,13 +676,20 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                     elif text == "parar":
                         pet.person.walk([])
                     elif text:
-                        print(f"  -> {pet.say(text)}")
+                        reply = pet.say(text)
+                        if pet.behavior is None:                             # (with one, its log prints it)
+                            print(f"  -> {reply}")
                 mujoco.mjv_applyPerturbPose(pet.m, pet.d, v.perturb, 0)    # drag the person (a mocap body)
                 pet.step()
+                if pet.behavior is not None:                                 # what it says
+                    for _, who, said in pet.behavior.log[shown:]:
+                        if who == "Cogu":
+                            print(f"  Cogu: {said}")
+                    shown = len(pet.behavior.log)
             b, c = pet.brain, pet.brain.cmd
-            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls",
+            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls\nbody",
                          f"{b.mode}\n{b.said}\nvx {c[0]:+.2f}  wz {c[2]:+.2f}\n{pet.distance():.2f} m"
-                         f"{'' if b.person()[1] else ' (out of sight)'}\n{pet.falls}"))
+                         f"{'' if b.person()[1] else ' (out of sight)'}\n{pet.falls}\n{pet.posture_state()}"))
             v.sync()
             sleep = pet.dt / speed - (time.perf_counter() - t0)
             if sleep > 0:
