@@ -12,7 +12,7 @@ Both moves are scripted references the policy corrects (as the get-up's catch), 
   then to `sit.seat` (44°, hip -130°, knee 4°, ankle 82°): the legs unfold forward and the pelvis drops to ~106 mm,
   the hip block (the yaw / roll servos under the drum) ~2 cm off the floor behind the heels, the centre of mass over
   the heels. Seated it leans back 44°, looking up at whoever stands near it, and holds with ~0.01 N·m.
-  The hip block stays ~1 cm off the floor: touching it puts the centre of mass behind the heels, and from there the
+  The hip block has to stay off the floor: touching it puts the centre of mass behind the heels, and from there the
   robot cannot stand back up. It needs the hip pitch to -130° and the ankle to +82° (free in the CAD to -135° and
   +85°; README, "Estudo: sentar no chão"). Until 2026-11-03 it stopped at the crouch, the bottom 7 cm off the floor.
   Asked to lie down while seated, it first rises back to the crouch.
@@ -100,11 +100,15 @@ def default_config() -> config_dict.ConfigDict:
                 torques=-0.002,
                 dof_pos_limits=-1.0,
                 residual=-0.5,         # squared correction (filtered action), kept small
+                block_floor=-1.0,      # v2: the hip block closer to the floor than block_clearance (0..1 per side)
             ),
             pose_sigma=0.3,
             tilt_sigma=10.0,           # deg
             height_sigma=0.02,         # m
             fall_tilt=40.0,            # deg off the expected lean, standing or sitting: fallen (episode ends)
+            # m. Seated, the hip block (its collision box) is ~15 mm off the floor; a forward push that sets it down
+            # leaves the robot unable to stand back up (it tips forward), so getting near the floor costs
+            block_clearance=0.01,
         ),
         impl="jax",
         naconmax=None,
@@ -162,6 +166,9 @@ class CoguPose(cogu_env.CoguJoystick):
         self._lie_tilts = jp.array(lie.tilts)
         self._lie_legs = jp.radians(jp.array(lie.legs))
         self._settle_steps = int(round(self._config.settle_time / self.sim_dt))
+        m = self.mj_model
+        self._block_geom_id = jp.array([m.geom(f"{side}_hip_roll_hip_roll_link_box").id for side in ("L", "R")])
+        self._block_size = jp.array(m.geom_size[self._block_geom_id])
 
     def _legs(self, hip, knee, ankle) -> jax.Array:
         leg = jp.stack([jp.zeros_like(hip), jp.zeros_like(hip), hip, knee, ankle])
@@ -174,6 +181,11 @@ class CoguPose(cogu_env.CoguJoystick):
         """Pelvis lean in the sagittal plane from the IMU, degrees: + back (face up), - forward."""
         g = self.get_gravity(data)
         return jp.degrees(jp.arccos(jp.clip(-g[2], -1.0, 1.0))) * jp.where(g[0] <= 0.0, 1.0, -1.0)
+
+    def block_height(self, data: mjx.Data) -> jax.Array:
+        """Lowest point (m) of each hip block (the hip roll link's collision box, the yaw / roll servos)."""
+        rot = data.geom_xmat[self._block_geom_id]
+        return data.geom_xpos[self._block_geom_id, 2] - jp.sum(jp.abs(rot[:, 2, :]) * self._block_size, axis=-1)
 
     def reference_step(self, data: mjx.Data, info: dict[str, Any]) -> jax.Array:
         cfg = self._config
@@ -361,5 +373,7 @@ class CoguPose(cogu_env.CoguJoystick):
             "torques": jp.sum(jp.abs(data.actuator_force)),
             "dof_pos_limits": self._cost_joint_pos_limits(q),
             "residual": jp.sum(jp.square(info["action_filtered"])),
+            "block_floor": jp.where(lying, 0.0, jp.sum(jp.clip(1.0 - self.block_height(data) / rc.block_clearance,
+                                                                0.0, 1.0))),
         }
         return rewards, ok, fell
