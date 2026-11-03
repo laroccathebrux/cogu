@@ -659,14 +659,36 @@ A primeira versão sentava inclinada 20° (pelve 154 mm, 0,25 N·m). Um empurrã
 por cima da ponta do pé; para trás e de lado, aguentava 0,6. Inclinada 25° o limite para a frente sobe para 0,3 m/s;
 30°, 0,4; 35°, 0,6 (cai a 0,8).
 
+**Sentar com a bunda no chão (2026-11-03): não dá com estas pernas.** Os servos de giro e de abertura do quadril ficam
+pendurados embaixo do tambor, e o bloco deles desce ~96 mm abaixo da pelve. Então o que pode encostar no chão é esse
+bloco, não o tambor; o tambor só tocaria com o corpo deitado ~77° para trás. Sentado sobre o bloco, com as pernas
+esticadas para a frente (quadril −120°, joelho 0°, tornozelo −65°, 30° para trás), a pose existe e é estável: pelve a
+98 mm, margem de 55 mm, torque zero, nos dois modelos. Mas nenhum movimento chega nela:
+- o agachado mais baixo com as solas no chão e o centro de massa sobre elas tem a pelve a 146 mm, com o bloco ainda
+  46 mm acima do chão. Para descer mais, a perna teria que encurtar, e quadril (−120°) e joelho (90°) já estão no
+  limite. Inclinar o pé sobre a ponta ou o calcanhar levanta o tornozelo em vez de baixar;
+- o bloco fica bem em cima do calcanhar, então os pés precisam sair para a frente enquanto o corpo cai ~5 cm. Esticar o
+  joelho empurra o corpo para cima e para trás, e ele deita de costas. Girar o quadril para trás tira o apoio, e ele cai
+  de frente;
+- busca aleatória de sequências de 1 a 3 poses (cada junta em toda a faixa, 0,1–0,8 s cada): nenhuma de 1.500
+  partindo do agachado e nenhuma de 2.000 partindo de deitado de costas termina sentada no bloco (todas terminam de
+  costas ou de frente).
+Com o joelho dobrando até ~160° (hoje 90°: as bochechas da canela batem na carcaça da coxa a ~95°), o agachado
+equilibrado chegaria com o bloco a 9 mm do chão. Isso é refazer o joelho, então fica como mudança de CAD para depois do
+primeiro protótipo. Mais baixo que hoje também piora: agachado a 148–149 mm (25–35° para trás) completa só 7–12 de 20
+ciclos com empurrões de 0,6 m/s, contra 20/20 do sentar de 165 mm.
+
 **Deitar.** De costas, pelo caminho da pegada do levantar tocado ao contrário: a cada passo a inclinação (do IMU)
 escolhe a pose do caminho 10° mais deitada, alcançada a 1 rad/s. Toda pose desse caminho se segura sozinha, então ele
-deita em ~2 s, sem passar de 0,1 m/s, em pé ou sentado. Para levantar, o levantar v8. A pose "chocando" (pernas dobradas
+deita em ~2 s, sem passar de 0,1 m/s, em pé ou sentado. O caminho acaba com os pés no chão e o quadril alto: o
+corpo fica 22–24° além do reto, com o topo da bolha mais baixo. Por isso, quando a inclinação passa de 105°, as pernas
+esticam (quadril, joelho e tornozelo a 0°, a 0,5 rad/s, ~4 s) e o corpo deita reto, a 90°, com o tambor no chão
+(2026-11-03). Para levantar, o levantar v8, que sobe dali 20 de 20 vezes nos dois modelos. A pose "chocando" (pernas dobradas
 para trás sob o corpo, canelas no chão, corpo em pé, torque zero) existe parada, mas indo do sentado para ela o robô
 tomba para trás (todas as variantes testadas).
 
 **O roteiro sozinho**, `pose_eval.py script`: em pé → senta (segura 3 s) → levanta até ficar pronto para a marcha →
-senta → deita. Atrito 0,6–1,2, servo 85–100 % e atraso de 0–40 ms sorteados, um empurrão em cada pausa; tentativas
+senta → deita reto → levantar v8 (desde 2026-11-03; antes parava ao deitar). Atrito 0,6–1,2, servo 85–100 % e atraso de 0–40 ms sorteados, um empurrão em cada pausa; tentativas
 que completam o ciclo inteiro:
 
 | empurrão até | inclinado 20°: treino | completo | **inclinado 35°: treino** | **completo** |
@@ -677,6 +699,8 @@ que completam o ciclo inteiro:
 | 0,8 m/s | | | | 19/20 |
 | 1,0 m/s | | | | 15/20 |
 
+Com o deitar reto e o levantar v8 no fim do ciclo (2026-11-03, 0,4 m/s): 20/20 no modelo do treino e 20/20 no completo.
+
 Quem cai, cai sentado: os empurrões fortes derrubam na pausa sentada, e quem senta inteiro levanta e deita sempre.
 Sentado a 35°, ele aguenta mais que a marcha v10 em pé (0,5–0,6 m/s).
 
@@ -686,7 +710,7 @@ anda) funciona no modelo do treino, no completo e no apartamento (`sim/brain/apa
 **A política** (`--env pose`): ambiente de 12 s, o comando (em pé / sentado / deitado) muda a cada 1,5–4 s e `lie` é
 final; começa em pé ou sentado, empurrões de até 0,5 m/s em pé ou sentado. A ação corrige o roteiro (× 0,5 rad), com o
 mesmo filtro e atraso da marcha. Recompensas: juntas perto do roteiro, inclinação e altura da pelve esperadas (deitado:
-de costas, 112°), parado (velocidade da pelve), pés sem escorregar, e a correção pequena. Cai (mais de 40° fora da
+de costas e reto, 90°, depois de esticar as pernas), parado (velocidade da pelve), pés sem escorregar, e a correção pequena. Cai (mais de 40° fora da
 inclinação esperada, em pé ou sentado): fim do episódio. Observação (51): IMU, juntas, última ação, comando, roteiro,
 quanto já sentou e se está deitando.
 
@@ -710,7 +734,7 @@ uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/c
 No viewer: **S** senta e levanta do sentado, **L** deita, **G** levanta de deitado (com `--getup`). `--pose script`
 toca o roteiro sozinho; com um checkpoint, a política.
 
-![em pé, sentado, deitado](../../docs/renders/sim_sit_lie.png)
+![em pé, sentado, deitado reto, e o sentar no bloco do quadril que nenhum movimento alcança](../../docs/renders/sim_sit_lie.png)
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 

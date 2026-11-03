@@ -13,7 +13,9 @@ Both moves are scripted references the policy corrects (as the get-up's catch), 
   a forward push of 0.3 m/s tipped it over the toes.
 - **lie**: the get-up's catch path played backwards: each step the pelvis tilt (from the IMU) picks the catch pose
   `lie.lead` degrees further towards lying, reached at `lie.rate` rad/s. Every pose on that path holds by itself, so
-  the robot lies down on its back in ~2 s, never faster than 0.1 m/s.
+  the robot lies down on its back in ~2 s, never faster than 0.1 m/s. That path ends with the feet on the floor and
+  the hips up (the body 20-25° past flat, the bubble's top lowest); once the tilt reaches `lie.end` the legs stretch
+  out straight (`lie.stretch`, at `lie.stretch_rate` rad/s) and the body lies flat (90°), the drum on the floor.
 
 The command (stand / sit / lie) changes every `switch_time` s (random); once `lie` starts it stays. Episodes start
 standing in `rest` or sitting (settled), with random heading, pushes while standing or sitting.
@@ -65,7 +67,8 @@ def default_config() -> config_dict.ConfigDict:
         push=config_dict.create(enable=True, interval=(2.0, 5.0), magnitude=(0.05, 0.5)),
         sit=config_dict.create(tilt=35.0, hip=-120.0, knee=90.0, time=2.0,      # deg, deg, deg, s
                                pelvis_tilt=35.0, height=0.165),                 # what it reaches (deg, m)
-        lie=config_dict.create(lead=10.0, rate=1.0, end=105.0, tilt=112.0,      # deg, rad/s, deg, deg
+        lie=config_dict.create(lead=10.0, rate=1.0, end=105.0, tilt=90.0,       # deg, rad/s, deg, deg
+                               stretch=(0.0, 0.0, 0.0), stretch_rate=0.5,       # legs at the end (deg), rad/s
                                tilts=[], legs=[]),                              # catch path, filled from the table
         noise_config=config_dict.create(
             level=1.0,
@@ -157,10 +160,15 @@ class CoguPose(cogu_env.CoguJoystick):
         sit = jp.clip(info["sit"] + jp.where(mode == 1, 1.0, -1.0) * self.dt / cfg.sit.time, 0.0, 1.0)
         info["sit"] = jp.where(lying, info["sit"], sit)
         info["lying"] = lying.astype(jp.float32)
-        want = jp.minimum(self.tilt(data) + cfg.lie.lead, cfg.lie.end)
+        tilt = self.tilt(data)
+        stretch = lying & ((info["stretch"] > 0.5) | (tilt >= cfg.lie.end))
+        info["stretch"] = stretch.astype(jp.float32)
+        want = jp.minimum(tilt + cfg.lie.lead, cfg.lie.end)
         leg = jax.vmap(lambda col: jp.interp(want, self._lie_tilts, col), in_axes=1)(self._lie_legs)
-        step = cfg.lie.rate * self.dt
-        lie = info["ref"] + jp.clip(self._legs(leg[0], leg[1], leg[2]) - info["ref"], -step, step)
+        flat = jp.radians(jp.array(cfg.lie.stretch))
+        goal = jp.where(stretch, self._legs(flat[0], flat[1], flat[2]), self._legs(leg[0], leg[1], leg[2]))
+        step = jp.where(stretch, cfg.lie.stretch_rate, cfg.lie.rate) * self.dt
+        lie = info["ref"] + jp.clip(goal - info["ref"], -step, step)
         return jp.where(lying, lie, self.sit_pose(ease(info["sit"])))
 
     # ----------------------------------------------------------------- reset
@@ -198,6 +206,7 @@ class CoguPose(cogu_env.CoguJoystick):
             "sit": sitting.astype(jp.float32),
             "start_sit": sitting.astype(jp.float32),
             "lying": jp.zeros(()),
+            "stretch": jp.zeros(()),
             "switch_t": jax.random.uniform(k_switch, minval=lo, maxval=hi),
             "push_t": jax.random.uniform(k_push, minval=cfg.push.interval[0], maxval=cfg.push.interval[1]),
         }
@@ -224,6 +233,7 @@ class CoguPose(cogu_env.CoguJoystick):
             info["mode"] = jp.where(fresh, info["start_mode"], info["mode"])
             info["sit"] = jp.where(fresh, info["start_sit"], info["sit"])
             info["lying"] = jp.where(fresh, 0.0, info["lying"])
+            info["stretch"] = jp.where(fresh, 0.0, info["stretch"])
             info["ctrl_history"] = jp.where(fresh, jp.tile(q, (cfg.max_action_delay_steps + 1, 1)),
                                             info["ctrl_history"])
             info["last_act"] = jp.where(fresh, 0.0, info["last_act"])
@@ -315,7 +325,8 @@ class CoguPose(cogu_env.CoguJoystick):
         tilt_err = jp.where(lying, jp.abs(tilt - self._config.lie.tilt), jp.abs(tilt - tilt_ref))
         upright_ok = (tilt_err < 8.0) & (jp.abs(height - height_ref) < 0.02)
         at_end = (info["sit"] < 1e-3) | (info["sit"] > 1.0 - 1e-3)
-        ok = jp.where(lying, (tilt > 90.0) & on_back, upright_ok & at_end).astype(jp.float32)
+        lying_ok = (info["stretch"] > 0.5) & (jp.abs(tilt - self._config.lie.tilt) < 10.0) & on_back
+        ok = jp.where(lying, lying_ok, upright_ok & at_end).astype(jp.float32)
         fell = ~lying & (jp.abs(tilt - tilt_ref) > rc.fall_tilt)
         speed = jp.sum(jp.square(self.get_global_linvel(data))) + 0.05 * jp.sum(jp.square(self.get_gyro(data)))
         contact = self._feet_contact(data)

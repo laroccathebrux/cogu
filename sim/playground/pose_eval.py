@@ -6,9 +6,10 @@
 
 Each trial, from standing in `rest` (walk v10 holding it first, as on the robot), runs the three moves the robot
 will be asked for, with a random push (up to `--push` m/s, random direction) in the middle of each hold:
-  1. sit down and hold 3 s, 2. stand up and get back to `rest` (ready for the walker), 3. sit again, then lie down.
+  1. sit down and hold 3 s, 2. stand up and get back to `rest` (ready for the walker), 3. sit again, then lie down (8 s: down on the back, then the legs stretch).
 Scored per move: sitting = leaning as the config's sit (35 ± 8°, pelvis 165 ± 20 mm) at the end of the hold; standing =
-the policy says ready within 6 s; lying = on the back (tilt above 90°) without falling over on the way.
+the policy says ready within 6 s; lying = flat on the back (legs stretched, 90 ± 10°) without falling over on the way; up = get-up v8 back
+standing in `rest` from there within 10 s.
 Friction (0.6–1.2), servo strength (85–100 %) and the latency (0 to `--delay` steps) are drawn per trial.
 """
 
@@ -27,6 +28,7 @@ import play  # noqa: E402
 from rollout import latest_checkpoint  # noqa: E402
 
 WALK = HERE / "checkpoints" / "cogu_walk_v10"
+GETUP = HERE / "checkpoints" / "cogu_getup_v8"
 
 
 def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay: int, push: float) -> dict:
@@ -51,7 +53,7 @@ def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay
     def sitting() -> bool:
         return (abs(pose.tilt() - pose.cfg.sit.pelvis_tilt) < 8.0 and abs(sim.d.qpos[2] - pose.cfg.sit.height) < 0.02)
 
-    out = dict(sit=False, stand=False, lie=False)
+    out = dict(sit=False, stand=False, lie=False, up=False)
     pose.start(1)
     out["sit"] = run(2.0 + 3.0, push_at=3.5) and sitting()
     if not out["sit"]:
@@ -71,8 +73,17 @@ def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay
     if not run(3.0):
         return out
     pose.mode = 2
-    run(5.0)
-    out["lie"] = pose.tilt() > 90.0
+    run(8.0)
+    out["lie"] = pose.stretched and abs(pose.tilt() - pose.cfg.lie.tilt) < 10.0
+    if not out["lie"]:
+        return out
+    getup = play.GetupPolicy(sim, latest_checkpoint(GETUP))
+    getup.start()
+    for _ in range(int(10.0 / sim.dt)):
+        getup.step()
+        if getup.ready():
+            break
+    out["up"] = getup.ready()
     return out
 
 
@@ -91,7 +102,7 @@ def main(argv=None) -> int:
     n = len(results)
     label = "scripted reference" if ckpt is None else play.checkpoint_label(ckpt)
     print(f"{label} on {Path(args.xml).name}, {n} trials (push ≤ {args.push} m/s, delay ≤ {args.delay}): "
-          + "  ".join(f"{k} {sum(r[k] for r in results)}/{n}" for k in ("sit", "stand", "lie")))
+          + "  ".join(f"{k} {sum(r[k] for r in results)}/{n}" for k in ("sit", "stand", "lie", "up")))
     return 0
 
 

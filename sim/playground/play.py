@@ -389,7 +389,7 @@ class PosePolicy:
         self.key = jax.random.PRNGKey(seed)
         self.lie_tilts = np.array(self.cfg.lie.tilts, float)
         self.lie_legs = np.radians(np.array(self.cfg.lie.legs, float))
-        self.mode, self.sit, self.lying = 0, 0.0, False
+        self.mode, self.sit, self.lying, self.stretched = 0, 0.0, False, False
 
     def legs(self, hip, knee, ankle) -> np.ndarray:
         leg = np.array([0.0, 0.0, hip, knee, ankle])
@@ -404,7 +404,7 @@ class PosePolicy:
         """Take over from where the joints are: `sit` 0 standing in `rest`, 1 sitting."""
         s = self.sim
         q = s.d.qpos[s.qj].copy()
-        self.mode, self.sit, self.lying = mode, sit, False
+        self.mode, self.sit, self.lying, self.stretched = mode, sit, False, False
         self.ref = q.copy()
         self.filtered = np.zeros(s.m.nu)
         self.last_act = np.zeros(s.m.nu)
@@ -415,9 +415,14 @@ class PosePolicy:
         cfg, dt = self.cfg, self.sim.dt
         self.lying = self.lying or self.mode == 2
         if self.lying:
-            want = min(self.tilt() + cfg.lie.lead, cfg.lie.end)
-            goal = self.legs(*(np.interp(want, self.lie_tilts, self.lie_legs[:, j]) for j in range(3)))
-            step = cfg.lie.rate * dt
+            tilt = self.tilt()
+            self.stretched = self.stretched or tilt >= cfg.lie.end     # on the back: stretch the legs, lie flat
+            if self.stretched:
+                goal, step = self.legs(*np.radians(cfg.lie.stretch)), cfg.lie.stretch_rate * dt
+            else:
+                want = min(tilt + cfg.lie.lead, cfg.lie.end)
+                goal = self.legs(*(np.interp(want, self.lie_tilts, self.lie_legs[:, j]) for j in range(3)))
+                step = cfg.lie.rate * dt
             self.ref = self.ref + np.clip(goal - self.ref, -step, step)
         else:
             self.sit = float(np.clip(self.sit + (1.0 if self.mode == 1 else -1.0) * dt / cfg.sit.time, 0.0, 1.0))
@@ -464,7 +469,7 @@ class PosePolicy:
 
     def state(self) -> str:
         if self.lying:
-            return "lying down" if self.tilt() < 90.0 else "lying"
+            return "lying" if self.stretched else "lying down"
         if self.mode == 1:
             return "sitting" if self.sit >= 1.0 else "sitting down"
         return "standing up"

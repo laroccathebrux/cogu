@@ -48,11 +48,13 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
    espelho e vidro). A posição do ARKit é a verdadeira com erro e atraso.
 8. **Movimentos novos, treinados no simulador como o levantar:**
    - **sentar**: agachado sobre os pés, a pelve desce de 205 para ~165 mm e o corpo inclina 35° para trás, olhando
-     para cima como um pet sentado (ele continua vendo e conversando). A bolha não chega ao chão: com o corpo em pé,
-     coxas e links do quadril tocam o chão antes (pelve a ~100 mm), então o "sentar com a bolha no chão" não existe
-     nesta perna (`sim/playground/README.md`, "Sentar e deitar");
+     para cima como um pet sentado (ele continua vendo e conversando). A bunda não chega ao chão: o bloco dos servos do
+     quadril fica ~96 mm abaixo do tambor, e mesmo sentar sobre esse bloco (pelve a 98 mm, estável) não é alcançável:
+     o agachado mais baixo deixa o bloco 46 mm acima do chão, e quadril e joelho já estão no limite. Chegar lá pede um
+     joelho que dobre ~160° (hoje 90°), mudança de CAD para depois do primeiro protótipo (`sim/playground/README.md`,
+     "Sentar e deitar");
    - **deitar**: deita de costas devagar (no máximo 0,1 m/s), seguindo de trás para a frente o caminho que o levantar
-     usa para subir; para levantar, o levantar v8;
+     usa para subir, e no fim estica as pernas para o corpo ficar reto (90°); para levantar, o levantar v8;
    - **empurrar a bola**: primeiro com a marcha atual (anda até ficar atrás da bola, alinha e anda contra ela); uma
      política própria só se ficar desajeitado;
    - **postura expressiva**: altura e inclinação do corpo como comandos da marcha, além da velocidade.
@@ -62,7 +64,8 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
 - Deitar **de costas** (o celular olha para o teto). Alternativas: de bruços põe o celular no chão; "chocando"
   (pernas dobradas para trás sob o corpo, canelas no chão, corpo em pé, torque zero) existe como pose parada, mas
   não achei ainda uma transição que chegue nela sem tombar para trás.
-- Sentar agachado e inclinado 35° para trás (olhando para cima, para o rosto de quem está em pé perto dele).
+- Sentar agachado e inclinado 35° para trás (olhando para cima, para o rosto de quem está em pé perto dele). Sentar
+  com a bunda no chão só com um joelho novo (dobrando ~160°).
 - Qual LLM local e qual na nuvem: decidido medindo tempo até a primeira palavra e qualidade das respostas.
 - Bola: tamanho 5 (22 cm, ~430 g) é o pedido; no treino também 3 e 4. O Cogu tem ~40 cm de altura (câmera a 38,6 cm).
 
