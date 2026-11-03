@@ -285,6 +285,12 @@ def build_mjcf(parts: dict[str, CoguPart], mesh_names: dict[tuple[str, bool], st
             emit(child, el)
 
     emit(assembly.robot(), world, root_body=True)
+    if not mjx:
+        # The thigh's convex hull reaches the yaw link's from hip pitch ~-125° (~20 N between them at -128°), but the
+        # exact solids never meet over the whole roll x pitch range (`cad/check_envelopes.py`, "thigh vs yaw link")
+        contact = ET.SubElement(root, "contact")
+        for side in ("L", "R"):
+            ET.SubElement(contact, "exclude", body1=f"{side}_hip_yaw", body2=f"{side}_thigh")
 
     act = ET.SubElement(root, "actuator")
     for jname, rng in joints:

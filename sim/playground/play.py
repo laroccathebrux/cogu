@@ -364,8 +364,7 @@ class GetupPolicy:
 
 
 def pose_config(ckpt: Path | None):
-    """The sit / lie env config a checkpoint was trained with (no checkpoint: the defaults, catch path from the
-    model the env trains on)."""
+    """The sit / lie env config a checkpoint was trained with (no checkpoint: the defaults, catch path from get-up v8)."""
     cfg = cogu_pose.default_config()
     for d in ((ckpt, ckpt.parent) if ckpt is not None else ()):
         f = d / cogu_env.ENV_CONFIG_FILE
@@ -373,8 +372,7 @@ def pose_config(ckpt: Path | None):
             cfg.update(json.loads(f.read_text()))
             break
     if not cfg.lie.tilts:
-        table = np.load(getup_starts.default_path(cogu_pose.POSE_XML))
-        cfg.lie.tilts, cfg.lie.legs = table["catch_tilt"].tolist(), table["catch_q"].tolist()
+        cfg.lie.tilts, cfg.lie.legs = cogu_pose.catch_path()
     return cfg
 
 
@@ -413,7 +411,8 @@ class PosePolicy:
 
     def _reference_step(self):
         cfg, dt = self.cfg, self.sim.dt
-        self.lying = self.lying or self.mode == 2
+        # seated (past the crouch), lying down first stands back up to the crouch: from the seat it falls forward
+        self.lying = self.lying or (self.mode == 2 and self.sit <= cfg.sit.split)
         if self.lying:
             tilt = self.tilt()
             self.stretched = self.stretched or tilt >= cfg.lie.end     # on the back: stretch the legs, lie flat
@@ -426,8 +425,7 @@ class PosePolicy:
             self.ref = self.ref + np.clip(goal - self.ref, -step, step)
         else:
             self.sit = float(np.clip(self.sit + (1.0 if self.mode == 1 else -1.0) * dt / cfg.sit.time, 0.0, 1.0))
-            c = float(cogu_pose.ease(self.sit))
-            self.ref = self.legs(*(float(x) for x in cogu_pose.sit_legs(c, cfg)))
+            self.ref = self.legs(*(float(x) for x in cogu_pose.sit_legs(self.sit, cfg)))
 
     def _obs(self) -> np.ndarray:
         s, d = self.sim, self.sim.d
@@ -460,7 +458,7 @@ class PosePolicy:
 
     def fallen(self) -> bool:
         """Standing or sitting, leaning far from what the reference expects."""
-        expected = self.cfg.sit.pelvis_tilt * float(cogu_pose.ease(self.sit))
+        expected = float(cogu_pose.sit_expected(self.sit, self.cfg, self.sim.init_q[2])[0])
         return not self.lying and abs(self.tilt() - expected) > self.cfg.reward_config.fall_tilt
 
     def ready(self) -> bool:

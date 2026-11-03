@@ -134,6 +134,15 @@ def main(argv=None) -> int:
     results["hip_yaw"] = sweep("hip_yaw", rng(-60, 60), t_yaw, 0.0)
 
     ok = True
+    # thigh vs yaw link over the roll x pitch grid: the full MJCF excludes this pair (convex hulls meet, solids don't)
+    worst = 0.0
+    for roll in (-35.0, -20.0, 0.0, 20.0, 35.0):
+        for pitch in rng(P.JOINT_RANGES_DEG["hip_pitch"][0] - args.margin, P.JOINT_RANGES_DEG["hip_pitch"][1]):
+            worst = max(worst, _vol(p.yaw, p.leg_in_yaw_frame(roll, pitch, r["knee"], r["ankle"])[1]))
+    good = worst < 1.0
+    ok &= good
+    print(f"\nthigh vs yaw link, roll ±35° x hip pitch range: worst overlap {worst:.2f} mm³  {'ok' if good else 'FAIL'}")
+
     # back hubs: the hub plate spins inside the hole of the proximal part's back wall at every joint
     hub = build_back_hub().solid
     hub_pairs = {

@@ -708,14 +708,44 @@ ficar sobre os pés com o bloco no chão, o quadril precisa ir mais para trás:
 A partir de −140°, a coxa bate no braço traseiro do U do roll (onde fica o 688ZZ) e no link de giro, que seguram o servo
 do roll. Liberar isso é mexer de novo no quadril (como no ADR-003), agora em volta do servo do roll.
 
-Com o quase-no-chão, empurrões de até 0,4–0,6 m/s fazem ele completar sentar e levantar 13–18 de 20 vezes (o sentar
-de hoje faz 20/20). Um empurrão para trás o põe sentado no bloco, de onde ele não levanta sozinho.
+Com o quase-no-chão a 38° (bloco a ~1 cm), empurrões de até 0,4–0,6 m/s fazem ele completar sentar e levantar 13–18 de
+20 vezes (o sentar agachado faz 20/20).
 
 Achado no caminho: no modelo completo, com o quadril além de −125°, o contorno convexo da coxa encosta no link de giro
-(~20 N) e empurra o corpo. Com sólidos exatos, a coxa fica livre até −135°. Para este estudo, a variante
-`full_hip_-130_ankle_82_noyawthigh.xml` exclui esse par de contato.
+(~20 N) e empurra o corpo. Com sólidos exatos, a coxa fica livre até −135°. No estudo, a variante
+`full_hip_-130_ankle_82_noyawthigh.xml` exclui esse par de contato. Desde a adoção, o próprio `cad/export.py` exclui
+esse par no modelo completo, e `check_envelopes.py` confere que os sólidos não se tocam.
 
 ![hoje, quase no chão e no chão](../../docs/renders/sim_sit_floor_study.png)
+
+**Sentar quase no chão (adotado em 2026-11-03).** O CAD passou a usar o quadril até −130° e o tornozelo até +82°
+(`parameters.JOINT_RANGES_DEG`, MJCF reexportado). O sentar vai em duas etapas, 2 s cada: primeiro até o agachado
+(35°, quadril −120°, joelho 90°), depois as pernas desdobram para a frente até quadril −130°, joelho 4°, tornozelo 82°.
+O corpo fica inclinado 44° para trás (olhando para o rosto de quem está em pé perto dele), com a pelve a 106 mm, o
+bloco do quadril a ~2 cm do chão e torque de ~0,01 N·m. Passar pelo agachado deixa o centro de massa sobre os pés com
+folga durante a descida; a linha reta de `rest` até o sentado passa com só 4–6 mm. Mandar deitar sentado faz ele
+voltar primeiro ao agachado, porque deitar direto do sentado o derruba de frente.
+
+Escolha da profundidade (empurrões de até 0,5 m/s em direção sorteada, 40 tentativas, ciclo inteiro):
+
+| inclinado / joelho | bloco acima do chão | modelo de treino | completo |
+|---|---|---|---|
+| 38° / 10° | 13 mm | 34/40 | 30/40 |
+| 42° / 6° | 17 mm | 38/40 | 34/40 |
+| **44° / 4°** | **20 mm** | **38/40** | **38/40** |
+| 46° / 2° | 22 mm | 39/40 | 37/40 |
+| 48° / 0° | 24 mm | 38/40 | 37/40 |
+
+`pose_eval.py script` (20 tentativas, semente 0): sem empurrão, 20/20 nos dois modelos; com empurrões até 0,4 m/s, 15/20
+no de treino e 14/20 no completo; até 0,6 m/s, 16/20 e 17/20; no apartamento, igual ao de treino. O sentar agachado
+fazia 20/20 até 0,6 m/s. As falhas vêm de empurrões para a frente (±50°) de 0,3–0,4 m/s: o bloco desce os 2 cm, e ele
+fica sentado no chão (25–29°), de onde não levanta pelo caminho. Mandar levantar dali o faz tombar de frente (~10 cm), e
+o levantar v8 o põe de pé em ~11–12 s (6 de 10 dentro de 12 s). No `play.py`, a queda chama o levantar sozinha. Uma
+política em volta do roteiro (pose v2, `--env pose`) pode aprender a segurar esses empurrões.
+
+Nada mais muda com as faixas novas: a marcha v10 segura os mesmos 38 de 40 empurrões (`push_recovery.py`). O levantar
+v8 sobe de 79/100 quedas no modelo de treino e 30/100 no completo em 10 s (`getup_eval.py --starts drop --trials 100`),
+contra 82 e 31 com as faixas antigas no mesmo teste.
 
 **Deitar.** De costas, pelo caminho da pegada do levantar tocado ao contrário: a cada passo a inclinação (do IMU)
 escolhe a pose do caminho 10° mais deitada, alcançada a 1 rad/s. Toda pose desse caminho se segura sozinha, então ele
@@ -764,10 +794,10 @@ mais barato que uma rede: são poucas contas por passo no ESP32. O ambiente e o 
 for medido. Se o roteiro piorar com o modelo do servo medido, treina-se a correção (pose v2) a partir dele.
 
 ```bash
-uv run python sim/playground/pose_eval.py script --xml build/mjcf/variants/full_hip_-120.xml   # o roteiro sozinho
+uv run python sim/playground/pose_eval.py script --xml build/mjcf/cogu_lower_body.xml   # o roteiro sozinho, modelo completo
 uv run python sim/playground/train.py --env pose --steps 30000000 --num-envs 4096 ...             # Colab: ENV = "pose"
 uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v10 \
-    --getup sim/playground/checkpoints/cogu_getup_v8 --pose script --xml build/mjcf/variants/hip_-120.xml
+    --getup sim/playground/checkpoints/cogu_getup_v8 --pose script --xml build/mjcf/cogu_lower_body_mjx_getup.xml
 ```
 
 No viewer: **S** senta e levanta do sentado, **L** deita, **G** levanta de deitado (com `--getup`). `--pose script`

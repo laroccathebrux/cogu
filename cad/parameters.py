@@ -39,9 +39,12 @@ JOINT_RANGES_DEG = {
     # forward limit: thigh housing corners meet the hip-pitch beam. Back: -120 since 2026-11-02 (was -85: the thigh met
     # the roll U's rear paddle from -95; now free to -125 with the leg straight, the foot then meets the drum, and to
     # -135 with the knee bent, where the thigh meets the yaw / roll links). The get-up rises from the back at -120.
-    "hip_pitch": (-120.0, 15.0),
+    # -130 since 2026-11-03: sitting nearly on the floor (sim/playground/README, "Sentar quase no chão").
+    "hip_pitch": (-130.0, 15.0),
     "knee": (0.0, 90.0),          # shin cheeks meet the thigh housing beyond ~95°
-    "ankle": (-75.0, 45.0),
+    # +82 since 2026-11-03 (was +45; free to +85): the seated pose, toes up towards the shin. Coupled limit: with the
+    # knee folded past ~60° an ankle above ~60° brings the foot into the thigh (the seat path never does that).
+    "ankle": (-75.0, 82.0),
 }
 
 # ---------------------------------------------------------------------------

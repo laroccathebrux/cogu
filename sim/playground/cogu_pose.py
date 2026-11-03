@@ -6,11 +6,16 @@ the back), so `lie` is a one-way command here.
 
 Both moves are scripted references the policy corrects (as the get-up's catch), found in plain MuJoCo
 (README, "Sentar e deitar"; `pose_eval.py script` plays them alone):
-- **sit**: the pelvis leans back `sit.tilt` degrees while the hips fold to `sit.hip` and the knees to `sit.knee`,
-  the ankles keeping the soles flat (ankle = -(hip + knee) - lean); over `sit.time` s with a cosine profile. The
-  pelvis drops from 205 to ~165 mm and the robot leans back 35°, looking up as a sitting pet does; the centre of
-  mass stays over the soles all the way and ends over the ankles (it holds with ~0.02 N·m). v1 sat leaning 20°:
-  a forward push of 0.3 m/s tipped it over the toes.
+- **sit** (2026-11-03): two straight legs of a path in (lean, hip pitch, knee), the ankles keeping the soles flat
+  (ankle = -(hip + knee) - lean), each with a cosine profile, over `sit.time` s in all. First down to `sit.crouch`
+  (35° back, hip -120°, knee 90°: the pelvis from 205 to ~165 mm, the centre of mass over the middle of the soles),
+  then to `sit.seat` (44°, hip -130°, knee 4°, ankle 82°): the legs unfold forward and the pelvis drops to ~106 mm,
+  the hip block (the yaw / roll servos under the drum) ~2 cm off the floor behind the heels, the centre of mass over
+  the heels. Seated it leans back 44°, looking up at whoever stands near it, and holds with ~0.01 N·m.
+  The hip block stays ~1 cm off the floor: touching it puts the centre of mass behind the heels, and from there the
+  robot cannot stand back up. It needs the hip pitch to -130° and the ankle to +82° (free in the CAD to -135° and
+  +85°; README, "Estudo: sentar no chão"). Until 2026-11-03 it stopped at the crouch, the bottom 7 cm off the floor.
+  Asked to lie down while seated, it first rises back to the crouch.
 - **lie**: the get-up's catch path played backwards: each step the pelvis tilt (from the IMU) picks the catch pose
   `lie.lead` degrees further towards lying, reached at `lie.rate` rad/s. Every pose on that path holds by itself, so
   the robot lies down on its back in ~2 s, never faster than 0.1 m/s. That path ends with the feet on the floor and
@@ -33,16 +38,24 @@ from typing import Any, Union
 
 import jax
 import jax.numpy as jp
-import numpy as np
 from ml_collections import config_dict
 from mujoco import mjx
 from mujoco.mjx._src import math as mjx_math
 from mujoco_playground._src import mjx_env
 
 import cogu_env
-import getup_starts
 
-POSE_XML = cogu_env.REPO_ROOT / "build" / "mjcf" / "variants" / "hip_-120.xml"
+POSE_XML = cogu_env.REPO_ROOT / "build" / "mjcf" / "cogu_lower_body_mjx_getup.xml"   # hip to -130°, ankle to +82°
+# the get-up's catch path the lie-down plays backwards: the one get-up v8 was trained with (getup_starts.py on the -120°
+# hip model), read from its saved config so it does not change with the model
+CATCH_CONFIG = Path(__file__).resolve().parent / "checkpoints" / "cogu_getup_v8" / cogu_env.ENV_CONFIG_FILE
+
+
+def catch_path() -> tuple[list, list]:
+    """Tilts (deg) and hip pitch / knee / ankle (deg) of the get-up v8 catch path."""
+    ref = json.loads(CATCH_CONFIG.read_text())["reference"]
+    return ref["tilts"], ref["legs"]
+REST_LEGS = (0.0, -35.0, 70.0)     # lean, hip pitch, knee (deg) standing in `rest`
 MODES = ("stand", "sit", "lie")
 
 
@@ -65,8 +78,10 @@ def default_config() -> config_dict.ConfigDict:
         # m/s, standing or sitting. Leaning 20° (v1) the reference alone held 0.25 m/s pushes every time and fell from
         # a quarter to 40 % of those up to 0.4-0.6; leaning 35° it holds 0.6 every time (pose_eval.py)
         push=config_dict.create(enable=True, interval=(2.0, 5.0), magnitude=(0.05, 0.5)),
-        sit=config_dict.create(tilt=35.0, hip=-120.0, knee=90.0, time=2.0,      # deg, deg, deg, s
-                               pelvis_tilt=35.0, height=0.165),                 # what it reaches (deg, m)
+        sit=config_dict.create(crouch=(35.0, -120.0, 90.0), seat=(44.0, -130.0, 4.0),    # lean, hip, knee (deg)
+                               time=4.0, split=0.5,             # s in all; share of it going down to the crouch
+                               crouch_pose=(35.0, 0.165),       # pelvis lean (deg) and height (m) at the crouch
+                               pelvis_tilt=43.0, height=0.107), # ... and seated
         lie=config_dict.create(lead=10.0, rate=1.0, end=105.0, tilt=90.0,       # deg, rad/s, deg, deg
                                stretch=(0.0, 0.0, 0.0), stretch_rate=0.5,       # legs at the end (deg), rad/s
                                tilts=[], legs=[]),                              # catch path, filled from the table
@@ -111,13 +126,25 @@ def is_pose_checkpoint(ckpt: Union[str, Path]) -> bool:
     return False
 
 
-def sit_legs(c, cfg) -> tuple:
-    """Hip pitch, knee, ankle (rad) at `c` of the way into sitting (0 = rest, 1 = sitting), soles flat."""
-    s = cfg.sit
-    hip = jp.radians(-35.0 + (s.hip + 35.0) * c)
-    knee = jp.radians(70.0 + (s.knee - 70.0) * c)
-    lean = jp.radians(s.tilt * c)
+def sit_stages(s, cfg) -> tuple:
+    """How far (0..1, eased) into the crouch and into the seat at `s` of the sitting time."""
+    split = cfg.sit.split
+    return (ease(jp.clip(s / split, 0.0, 1.0)), ease(jp.clip((s - split) / (1.0 - split), 0.0, 1.0)))
+
+
+def sit_legs(s, cfg) -> tuple:
+    """Hip pitch, knee, ankle (rad) at `s` of the sitting time (0 = rest, 1 = seated), soles flat."""
+    a, b = sit_stages(s, cfg)
+    lean, hip, knee = (jp.radians(r + (c - r) * a + (t - c) * b)
+                       for r, c, t in zip(REST_LEGS, cfg.sit.crouch, cfg.sit.seat))
     return hip, knee, -(hip + knee) - lean
+
+
+def sit_expected(s, cfg, stand_height) -> tuple:
+    """Pelvis lean (deg) and height (m) the robot reaches at `s` of the sitting time."""
+    a, b = sit_stages(s, cfg)
+    (tc, hc), st = cfg.sit.crouch_pose, cfg.sit
+    return tc * a + (st.pelvis_tilt - tc) * b, stand_height + (hc - stand_height) * a + (st.height - hc) * b
 
 
 def ease(s):
@@ -131,12 +158,7 @@ class CoguPose(cogu_env.CoguJoystick):
         super().__init__(xml_path=xml_path, config=config)
         lie = self._config.lie
         if not lie.tilts:
-            path = getup_starts.default_path(xml_path)
-            if not path.exists():
-                raise FileNotFoundError(f"{path} not found (the catch path). Make it with `uv run python "
-                                        f"sim/playground/getup_starts.py --xml {xml_path} --mode roll`.")
-            table = np.load(path)
-            lie.tilts, lie.legs = table["catch_tilt"].tolist(), table["catch_q"].tolist()
+            lie.tilts, lie.legs = catch_path()
         self._lie_tilts = jp.array(lie.tilts)
         self._lie_legs = jp.radians(jp.array(lie.legs))
         self._settle_steps = int(round(self._config.settle_time / self.sim_dt))
@@ -145,8 +167,8 @@ class CoguPose(cogu_env.CoguJoystick):
         leg = jp.stack([jp.zeros_like(hip), jp.zeros_like(hip), hip, knee, ankle])
         return jp.concatenate([leg, leg])
 
-    def sit_pose(self, c) -> jax.Array:
-        return self._legs(*sit_legs(c, self._config))
+    def sit_pose(self, s) -> jax.Array:
+        return self._legs(*sit_legs(s, self._config))
 
     def tilt(self, data: mjx.Data) -> jax.Array:
         """Pelvis lean in the sagittal plane from the IMU, degrees: + back (face up), - forward."""
@@ -156,7 +178,8 @@ class CoguPose(cogu_env.CoguJoystick):
     def reference_step(self, data: mjx.Data, info: dict[str, Any]) -> jax.Array:
         cfg = self._config
         mode = info["mode"]
-        lying = (info["lying"] > 0.5) | (mode == 2)
+        # seated (past the crouch), lying down first stands back up to the crouch: from the seat it falls forward
+        lying = (info["lying"] > 0.5) | ((mode == 2) & (info["sit"] <= cfg.sit.split))
         sit = jp.clip(info["sit"] + jp.where(mode == 1, 1.0, -1.0) * self.dt / cfg.sit.time, 0.0, 1.0)
         info["sit"] = jp.where(lying, info["sit"], sit)
         info["lying"] = lying.astype(jp.float32)
@@ -169,7 +192,7 @@ class CoguPose(cogu_env.CoguJoystick):
         goal = jp.where(stretch, self._legs(flat[0], flat[1], flat[2]), self._legs(leg[0], leg[1], leg[2]))
         step = jp.where(stretch, cfg.lie.stretch_rate, cfg.lie.rate) * self.dt
         lie = info["ref"] + jp.clip(goal - info["ref"], -step, step)
-        return jp.where(lying, lie, self.sit_pose(ease(info["sit"])))
+        return jp.where(lying, lie, self.sit_pose(info["sit"]))
 
     # ----------------------------------------------------------------- reset
     def reset(self, rng: jax.Array) -> mjx_env.State:
@@ -310,9 +333,7 @@ class CoguPose(cogu_env.CoguJoystick):
     # --------------------------------------------------------------- reward
     def expected(self, info: dict[str, Any]) -> tuple[jax.Array, jax.Array]:
         """Pelvis lean (deg) and height (m) of the reference while standing or sitting."""
-        s = self._config.sit
-        c = ease(info["sit"])
-        return s.pelvis_tilt * c, self._init_q[2] + (s.height - self._init_q[2]) * c
+        return sit_expected(info["sit"], self._config, self._init_q[2])
 
     def _get_reward(self, data: mjx.Data, action: jax.Array, info: dict[str, Any]):
         rc = self._config.reward_config

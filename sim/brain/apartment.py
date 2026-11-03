@@ -1,6 +1,6 @@
 """A small apartment around the robot, for the brain (ADR-004): made with MjSpec from a robot MJCF (not touched).
 
-    uv run python sim/brain/apartment.py                      # -> build/mjcf/apartment.xml (from hip_-120.xml)
+    uv run python sim/brain/apartment.py                      # -> build/mjcf/apartment.xml (from the get-up MJCF)
     uv run python sim/brain/apartment.py --ball 0.095         # a size-4 ball (radius, m)
     uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v10 \
         --getup sim/playground/checkpoints/cogu_getup_v8 --xml build/mjcf/apartment.xml
@@ -25,7 +25,7 @@ import numpy as np
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
-ROBOT_XML = REPO_ROOT / "build" / "mjcf" / "variants" / "hip_-120.xml"
+ROBOT_XML = REPO_ROOT / "build" / "mjcf" / "cogu_lower_body_mjx_getup.xml"   # hip to -130°, ankle to +82°
 OUT = REPO_ROOT / "build" / "mjcf" / "apartment.xml"
 
 ROOM = (-1.5, 2.5, -1.75, 1.75)      # m: x0, x1, y0, y1 of the living room

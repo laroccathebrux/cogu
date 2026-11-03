@@ -1,14 +1,14 @@
 """Sit / lie-down sim2sim check: the pose policy (or the scripted reference alone) on plain MuJoCo.
 
     uv run python sim/playground/pose_eval.py sim/playground/checkpoints/cogu_pose_v1
-    uv run python sim/playground/pose_eval.py script --xml build/mjcf/variants/full_hip_-120.xml   # reference alone
+    uv run python sim/playground/pose_eval.py script --xml build/mjcf/cogu_lower_body.xml   # reference alone, full model
     uv run python sim/playground/pose_eval.py build/checkpoints/cogu_pose_v1 --trials 40 --delay 2 --push 0.6
 
 Each trial, from standing in `rest` (walk v10 holding it first, as on the robot), runs the three moves the robot
 will be asked for, with a random push (up to `--push` m/s, random direction) in the middle of each hold:
   1. sit down and hold 3 s, 2. stand up and get back to `rest` (ready for the walker), 3. sit again, then lie down (8 s: down on the back, then the legs stretch).
-Scored per move: sitting = leaning as the config's sit (35 ± 8°, pelvis 165 ± 20 mm) at the end of the hold; standing =
-the policy says ready within 6 s; lying = flat on the back (legs stretched, 90 ± 10°) without falling over on the way; up = get-up v8 back
+Scored per move: sitting = leaning as the config's seat (44 ± 8°, pelvis 107 ± 20 mm) at the end of the hold; standing
+= ready for the walker within the sitting time + 4 s; lying = flat on the back (legs stretched, 90 ± 10°) without falling over on the way; up = get-up v8 back
 standing in `rest` from there within 10 s.
 Friction (0.6–1.2), servo strength (85–100 %) and the latency (0 to `--delay` steps) are drawn per trial.
 """
@@ -55,11 +55,12 @@ def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay
 
     out = dict(sit=False, stand=False, lie=False, up=False)
     pose.start(1)
-    out["sit"] = run(2.0 + 3.0, push_at=3.5) and sitting()
+    t = pose.cfg.sit.time
+    out["sit"] = run(t + 3.0, push_at=t + 1.5) and sitting()
     if not out["sit"]:
         return out
     pose.mode = 0
-    for _ in range(int(6.0 / sim.dt)):
+    for _ in range(int((t + 4.0) / sim.dt)):
         pose.step()
         if pose.ready() or pose.fallen():
             break
@@ -70,7 +71,7 @@ def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay
     for _ in range(25):
         sim.step()
     pose.start(1)
-    if not run(3.0):
+    if not run(t + 1.0):
         return out
     pose.mode = 2
     run(8.0)
