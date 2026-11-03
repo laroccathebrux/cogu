@@ -8,8 +8,9 @@ Both moves are scripted references the policy corrects (as the get-up's catch), 
 (README, "Sentar e deitar"; `pose_eval.py script` plays them alone):
 - **sit**: the pelvis leans back `sit.tilt` degrees while the hips fold to `sit.hip` and the knees to `sit.knee`,
   the ankles keeping the soles flat (ankle = -(hip + knee) - lean); over `sit.time` s with a cosine profile. The
-  pelvis drops from 205 to ~154 mm and the robot leans back ~18°, looking up as a sitting pet does; the centre of
-  mass stays over the soles all the way (open loop it sits and stands on both models).
+  pelvis drops from 205 to ~165 mm and the robot leans back 35°, looking up as a sitting pet does; the centre of
+  mass stays over the soles all the way and ends over the ankles (it holds with ~0.02 N·m). v1 sat leaning 20°:
+  a forward push of 0.3 m/s tipped it over the toes.
 - **lie**: the get-up's catch path played backwards: each step the pelvis tilt (from the IMU) picks the catch pose
   `lie.lead` degrees further towards lying, reached at `lie.rate` rad/s. Every pose on that path holds by itself, so
   the robot lies down on its back in ~2 s, never faster than 0.1 m/s.
@@ -59,11 +60,11 @@ def default_config() -> config_dict.ConfigDict:
         switch_time=(1.5, 4.0),        # s between commands
         mode_probs=(0.4, 0.4, 0.2),    # stand, sit, lie at each switch
         settle_time=0.5,               # s holding the sit pose for the sitting starts
-        # m/s, standing or sitting: the reference alone holds 0.25 m/s pushes every time on both models, and falls
-        # from a quarter to 40 % of those up to 0.4-0.6 (pose_eval.py); that margin is what the correction is for
+        # m/s, standing or sitting. Leaning 20° (v1) the reference alone held 0.25 m/s pushes every time and fell from
+        # a quarter to 40 % of those up to 0.4-0.6; leaning 35° it holds 0.6 every time (pose_eval.py)
         push=config_dict.create(enable=True, interval=(2.0, 5.0), magnitude=(0.05, 0.5)),
-        sit=config_dict.create(tilt=20.0, hip=-120.0, knee=90.0, time=2.0,      # deg, deg, deg, s
-                               pelvis_tilt=18.0, height=0.154),                 # what it reaches (deg, m)
+        sit=config_dict.create(tilt=35.0, hip=-120.0, knee=90.0, time=2.0,      # deg, deg, deg, s
+                               pelvis_tilt=35.0, height=0.165),                 # what it reaches (deg, m)
         lie=config_dict.create(lead=10.0, rate=1.0, end=105.0, tilt=112.0,      # deg, rad/s, deg, deg
                                tilts=[], legs=[]),                              # catch path, filled from the table
         noise_config=config_dict.create(

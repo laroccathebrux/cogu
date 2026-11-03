@@ -635,8 +635,8 @@ treinou é o que ela usa. Andar de lado continua fraco.
 
 ## Sentar e deitar (2026-11-02)
 
-Para os comandos "sente" e "deita" do bichinho (ADR-004), uma terceira política, `cogu_pose.py`, ao lado de andar e
-levantar. Como no levantar, ela corrige um roteiro que já funciona sozinho.
+Para os comandos "sente" e "deita" do bichinho (ADR-004): um roteiro que funciona sozinho e o ambiente `cogu_pose.py`
+para treinar uma correção em volta dele, como no levantar.
 
 **Sentar.** A ideia inicial era descer até a bolha encostar no chão, com o corpo em pé. Não dá: com a pelve em pé, as
 coxas e os links do quadril batem no chão com a pelve a ~100 mm, e a bolha ainda está acima (mapa estático de
@@ -645,14 +645,19 @@ inclinando para trás. Com as solas no chão, a inclinação da pelve é `−(qu
 massa precisa ficar sobre a sola (130 mm). Descendo reto, ele sai pela ponta e o robô cai para a frente (pelve a
 ~172 mm). Inclinando para trás junto, cabe até o fim:
 
-| joelho 90°, quadril −120° | inclinação 0° | 10° | 20° | 30° |
-|---|---|---|---|---|
-| centro de massa à frente do meio da sola | +78 mm (cai) | +59 mm (na borda) | **+38 mm** | +16 mm |
-| pelve | 129 mm | 144 mm | **156 mm** | 163 mm |
+| joelho 90°, quadril −120° | inclinação 0° | 10° | 20° | 30° | **35°** | 40° |
+|---|---|---|---|---|---|---|
+| centro de massa à frente do meio da sola | +78 mm (cai) | +59 mm (na borda) | +38 mm | +16 mm | **+4 mm** | −7 mm |
+| pelve | 129 mm | 144 mm | 156 mm | 163 mm | **166 mm** | 167 mm |
 
-O roteiro vai de `rest` a quadril −120°, joelho 90° e 20° de inclinação em 2 s (perfil em cosseno), com o
-tornozelo mantendo a sola no chão. Ele senta com a pelve a 154 mm, inclinado 18° para trás (olhando para cima, como
-um pet sentado), segurando com 0,25 N·m, e levanta pelo mesmo caminho.
+O roteiro vai de `rest` a quadril −120°, joelho 90° e 35° de inclinação em 2 s (perfil em cosseno), com o
+tornozelo mantendo a sola no chão, e levanta pelo mesmo caminho. Sentado, a pelve fica a 165 mm e ele olha 35° para
+cima, para o rosto de quem está em pé perto dele, como um pet sentado. O centro de massa fica quase sobre o
+tornozelo, e a pose se segura com 0,02 N·m: os servos quase descansam.
+
+A primeira versão sentava inclinada 20° (pelve 154 mm, 0,25 N·m). Um empurrão de 0,3 m/s para a frente já a derrubava
+por cima da ponta do pé; para trás e de lado, aguentava 0,6. Inclinada 25° o limite para a frente sobe para 0,3 m/s;
+30°, 0,4; 35°, 0,6 (cai a 0,8).
 
 **Deitar.** De costas, pelo caminho da pegada do levantar tocado ao contrário: a cada passo a inclinação (do IMU)
 escolhe a pose do caminho 10° mais deitada, alcançada a 1 rad/s. Toda pose desse caminho se segura sozinha, então ele
@@ -664,14 +669,16 @@ tomba para trás (todas as variantes testadas).
 senta → deita. Atrito 0,6–1,2, servo 85–100 % e atraso de 0–40 ms sorteados, um empurrão em cada pausa; tentativas
 que completam o ciclo inteiro:
 
-| empurrão até | modelo do treino | modelo completo |
-|---|---|---|
-| 0,25 m/s | 20/20 | 20/20 |
-| 0,4 m/s | 16/20 | 15/20 |
-| 0,6 m/s | 12/20 | 12/20 |
+| empurrão até | inclinado 20°: treino | completo | **inclinado 35°: treino** | **completo** |
+|---|---|---|---|---|
+| 0,25 m/s | 20/20 | 20/20 | | |
+| 0,4 m/s | 16/20 | 15/20 | 20/20 | 20/20 |
+| 0,6 m/s | 12/20 | 12/20 | 20/20 | 20/20 |
+| 0,8 m/s | | | | 19/20 |
+| 1,0 m/s | | | | 15/20 |
 
-(Quem cai, cai sentado: os empurrões fortes derrubam na pausa sentada; os que sentam inteiros levantam e deitam
-sempre.)
+Quem cai, cai sentado: os empurrões fortes derrubam na pausa sentada, e quem senta inteiro levanta e deita sempre.
+Sentado a 35°, ele aguenta mais que a marcha v10 em pé (0,5–0,6 m/s).
 
 O ciclo inteiro com as outras políticas (`play.py`: marcha v10 → senta → levanta → anda → senta → deita → levantar v8 →
 anda) funciona no modelo do treino, no completo e no apartamento (`sim/brain/apartment.py`).
@@ -682,6 +689,16 @@ mesmo filtro e atraso da marcha. Recompensas: juntas perto do roteiro, inclinaç
 de costas, 112°), parado (velocidade da pelve), pés sem escorregar, e a correção pequena. Cai (mais de 40° fora da
 inclinação esperada, em pé ou sentado): fim do episódio. Observação (51): IMU, juntas, última ação, comando, roteiro,
 quanto já sentou e se está deitando.
+
+**Pose v1** (Colab, T4, 30 M passos do zero, 51 min, sentando inclinada 20°): a curva ficou plana, com 0,14–0,20
+quedas por episódio do começo ao fim. No sim2sim, com empurrões de até 0,4 m/s, ela completou 17/20 no modelo do
+treino e 16/20 no completo, contra 16/20 e 15/20 do roteiro sozinho: empate dentro do ruído. O que derrubava era o
+empurrão para a frente sentado inclinado 20°. Na física isso pede mudar a pose, não corrigir em volta dela, e os 35°
+resolveram sem rede. O checkpoint não foi guardado.
+
+**Decisão: o sentar e o deitar ficam como roteiro**, sem rede neural. Ele já aguenta mais que a marcha e, na medula, é
+mais barato que uma rede: são poucas contas por passo no ESP32. O ambiente e o `--env pose` ficam para quando o servo real
+for medido. Se o roteiro piorar com o modelo do servo medido, treina-se a correção (pose v2) a partir dele.
 
 ```bash
 uv run python sim/playground/pose_eval.py script --xml build/mjcf/variants/full_hip_-120.xml   # o roteiro sozinho

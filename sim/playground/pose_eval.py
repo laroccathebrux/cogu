@@ -7,7 +7,7 @@
 Each trial, from standing in `rest` (walk v10 holding it first, as on the robot), runs the three moves the robot
 will be asked for, with a random push (up to `--push` m/s, random direction) in the middle of each hold:
   1. sit down and hold 3 s, 2. stand up and get back to `rest` (ready for the walker), 3. sit again, then lie down.
-Scored per move: sitting = leaning 18 ± 8° back with the pelvis at 154 ± 20 mm at the end of the hold; standing =
+Scored per move: sitting = leaning as the config's sit (35 ± 8°, pelvis 165 ± 20 mm) at the end of the hold; standing =
 the policy says ready within 6 s; lying = on the back (tilt above 90°) without falling over on the way.
 Friction (0.6–1.2), servo strength (85–100 %) and the latency (0 to `--delay` steps) are drawn per trial.
 """
@@ -49,7 +49,7 @@ def trial(xml: Path, pose_ckpt: Path | None, rng: np.random.Generator, max_delay
         return True
 
     def sitting() -> bool:
-        return abs(pose.tilt() - 18.0) < 8.0 and abs(sim.d.qpos[2] - 0.154) < 0.02
+        return (abs(pose.tilt() - pose.cfg.sit.pelvis_tilt) < 8.0 and abs(sim.d.qpos[2] - pose.cfg.sit.height) < 0.02)
 
     out = dict(sit=False, stand=False, lie=False)
     pose.start(1)
