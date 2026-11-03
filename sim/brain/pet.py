@@ -1,0 +1,553 @@
+"""The pet's simple commands in the apartment, with perfect perception (ADR-004; sim/brain/README.md, step 1).
+
+    uv run python sim/brain/apartment.py                        # once: build/mjcf/apartment.xml
+    uv run mjpython sim/brain/pet.py                            # viewer; type the commands in the terminal
+    uv run python sim/brain/pet.py --test                       # the scenarios, headless, with their numbers
+    uv run python sim/brain/pet.py --plot --video               # -> docs/renders/sim_pet_commands.png, sim_pet_siga.mp4
+
+Commands (what the phone's speech recognition will hand over, no LLM in between): **pare** (stop now, stay stopped),
+**fica** (stay here, keep facing the person), **vem** (come to the person and stop in front of them, then fica),
+**siga** (follow the person, ~0.75 m behind, through doors). Synonyms: para / stop / chega; fique / espera;
+vem aqui / aqui; segue / me segue / vem comigo.
+
+The brain reads the true poses (the robot's pelvis, the person, the ball) and walks with walk v10: every 0.5 s it
+replans on a floor map of the furniture plus the person and the ball; between replans it follows the path. A fall
+hands over to get-up v8, then the command carries on. A reflex stops forward motion when something is about to touch
+the robot, whatever the plan says.
+
+In the viewer: type a command and Enter in the terminal (`andar` makes the person walk a tour, `parar` stops them);
+End = pare; double-click the person, then Ctrl + right-drag moves them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import math
+import queue
+import sys
+import threading
+import time
+import unicodedata
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent / "playground"))
+
+import mujoco  # noqa: E402
+import numpy as np  # noqa: E402
+
+import play  # noqa: E402
+from navigation import FloorMap, PathFollower, Planner, path_length, wrap  # noqa: E402
+from rollout import latest_checkpoint  # noqa: E402
+
+REPO_ROOT = HERE.parents[1]
+APARTMENT_XML = REPO_ROOT / "build" / "mjcf" / "apartment.xml"
+WALK = HERE.parent / "playground" / "checkpoints" / "cogu_walk_v10"
+GETUP = HERE.parent / "playground" / "checkpoints" / "cogu_getup_v8"
+
+PERSON_RADIUS = 0.25      # m: feet and legs, seen from above
+AVOID = 0.40              # m: the simulated person walks around the robot at this distance
+BALL_RADIUS = 0.11
+COME_RING = (0.50, 0.60)  # m from the person: where "vem" stops
+FOLLOW_RING = (0.70, 0.80)
+FOLLOW_START = 1.0        # m: "siga" sets off again when the person is farther than this (or out of sight)
+REPLAN = 0.5              # s
+TURN_CLEAR = 0.14         # m: turning in place sweeps ~11 cm around the pelvis (plus some drift); closer to
+                          # something than this, the robot first steps sideways / back out of there
+
+# the person's tour (m; a number alone is a pause in s): along the TV, into the corridor, back, past the sofa,
+# around the room
+TOUR = [(1.9, -1.0), (2.6, -1.25), (4.2, -1.25), 4.0, (2.6, -1.25), (1.95, -0.6), (1.95, 0.5), 3.0,
+        (1.95, -0.25), (-1.0, -0.25), (-0.9, -0.9), 3.0]
+
+WORDS = [("pare", ("pare", "para", "stop", "chega", "parado")),
+         ("siga", ("siga", "segue", "me segue", "vem comigo", "me siga")),
+         ("vem", ("vem", "vem aqui", "aqui", "venha")),
+         ("fica", ("fica", "fique", "espera", "fica ai"))]
+
+
+def parse(text: str) -> str | None:
+    """A spoken command -> 'pare' | 'siga' | 'vem' | 'fica' | None. Accents and case don't matter."""
+    t = unicodedata.normalize("NFKD", text.lower()).encode("ascii", "ignore").decode().strip(" !.,?")
+    for name, forms in WORDS:            # pare first: "para" wins over anything else said with it
+        if t in forms:
+            return name
+    for name, forms in WORDS:
+        if any(f" {f} " in f" {t} " for f in forms if " " in f):
+            return name
+    for name, forms in WORDS:
+        if any(w in forms for w in t.split()):
+            return name
+    return None
+
+
+class Person:
+    """Walks the mocap person through waypoints at `speed` (turning to face where they go), with pauses."""
+
+    def __init__(self, m: mujoco.MjModel, d: mujoco.MjData, speed: float = 0.25):
+        self.d, self.speed = d, speed
+        self.mocap = m.body_mocapid[m.body("person").id]
+        self.route: list = []
+        self.wait = 0.0
+
+    @property
+    def xy(self) -> np.ndarray:
+        return self.d.mocap_pos[self.mocap, :2].copy()
+
+    def place(self, x: float, y: float, yaw: float = 0.0):
+        self.d.mocap_pos[self.mocap] = (x, y, 0.0)
+        self.d.mocap_quat[self.mocap] = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+        self.route = []
+
+    def walk(self, route):
+        self.route, self.wait = list(route), 0.0
+
+    @property
+    def walking(self) -> bool:
+        return bool(self.route)
+
+    def step(self, dt: float, avoid=None, fmap: FloorMap | None = None):
+        """`avoid`: a point (x, y) to keep `AVOID` m from (the robot: people step around a pet in their way),
+        without walking into what `fmap` has; boxed in, they wait."""
+        if not self.route:
+            return
+        nxt = self.route[0]
+        if not isinstance(nxt, tuple):           # a pause
+            self.wait += dt
+            if self.wait >= nxt:
+                self.route.pop(0)
+                self.wait = 0.0
+            return
+        p, goal = self.xy, np.array(nxt)
+        gap = float(np.linalg.norm(goal - p))
+        if gap <= self.speed * dt:
+            self.d.mocap_pos[self.mocap, :2] = goal
+            self.route.pop(0)
+            return
+        heading = (goal - p) / gap
+        if avoid is not None:
+            # the direction closest to the goal's whose point 0.3 m ahead keeps clear of the robot and the walls
+            o = np.asarray(avoid, float)
+            for a in sorted(np.radians(np.arange(-90, 91, 10)), key=lambda a: (abs(a), a)):
+                c, s_ = math.cos(a), math.sin(a)
+                h = np.array([c * heading[0] - s_ * heading[1], s_ * heading[0] + c * heading[1]])
+                q = p + 0.3 * h
+                if fmap is not None and fmap.clearance_at(q) < 0.15:
+                    continue
+                if np.linalg.norm(q - o) < AVOID and np.linalg.norm(q - o) < np.linalg.norm(p - o):
+                    continue
+                heading = h
+                break
+            else:
+                return
+        self.d.mocap_pos[self.mocap, :2] = p + heading * self.speed * dt
+        yaw = math.atan2(heading[1], heading[0])
+        self.d.mocap_quat[self.mocap] = (math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2))
+
+
+class Brain:
+    """Commands -> the walk command, from true poses. `hear(text)`, then `step(t)` every control step."""
+
+    def __init__(self, m: mujoco.MjModel, d: mujoco.MjData, person: Person, dt: float, vmax: float = 0.25):
+        self.m, self.d, self.person, self.dt = m, d, person, dt
+        self.static = FloorMap.from_model(m, d)
+        self.planner = Planner()
+        self.follower = PathFollower(vmax=vmax)
+        self.ball = m.body("ball").id
+        self.mode, self.said = "fica", ""
+        self.path: list | None = None
+        self.next_plan = 0.0
+        self.going = False            # siga: walking after the person (else waiting, facing them)
+        self.turning = False          # facing: turning in place (hysteresis)
+        self.cmd = np.zeros(3)
+        self.reflex = 0               # steps the reflex held the robot back
+
+    # -- poses (perfect perception) ------------------------------------------------------------------------
+    def pose(self) -> tuple[float, float, float]:
+        x, y = self.d.xpos[1, :2]
+        fwd = self.d.xmat[1].reshape(3, 3)[:, 0]
+        return float(x), float(y), math.atan2(fwd[1], fwd[0])
+
+    def dynamic_map(self) -> FloorMap:
+        bx, by = self.d.xpos[self.ball, :2]
+        px, py = self.person.xy
+        return self.static.with_circles([(px, py, PERSON_RADIUS), (bx, by, BALL_RADIUS)])
+
+    # -- commands ------------------------------------------------------------------------------------------
+    def hear(self, text: str) -> str | None:
+        cmd = parse(text)
+        if cmd is None:
+            self.said = f"? '{text}'"
+            return None
+        self.mode, self.path, self.next_plan, self.going, self.turning = cmd, None, 0.0, False, False
+        if cmd == "pare":
+            self.cmd[:] = 0.0         # no ramp: stop now
+        self.said = cmd
+        return cmd
+
+    def step(self, t: float) -> np.ndarray:
+        x, y, yaw = self.pose()
+        want = np.zeros(3)
+        if self.mode == "fica":
+            want[2] = self.face(x, y, yaw)
+        elif self.mode in ("vem", "siga"):
+            want = self.go(t, x, y, yaw)
+        if want[2] != 0.0 and want[0] == 0.0:
+            want = self.step_out(want, x, y, yaw)
+        if self.mode != "pare":
+            want = self.reflex_check(want, x, y, yaw)
+        # ramp the command (the walker was trained on steps in it, but a ramp is gentler); pare skips it in hear()
+        lim = np.array([0.5, 0.5, 3.0]) * self.dt
+        self.cmd += np.clip(want - self.cmd, -lim, lim)
+        self.cmd[np.abs(self.cmd) < 1e-3] = 0.0
+        return self.cmd.copy()
+
+    def face(self, x: float, y: float, yaw: float) -> float:
+        """wz that turns toward the person, with a dead band (start past 25°, stop under 8°)."""
+        px, py = self.person.xy
+        e = wrap(math.atan2(py - y, px - x) - yaw)
+        if abs(e) > math.radians(25):
+            self.turning = True
+        elif abs(e) < math.radians(8):
+            self.turning = False
+        if not self.turning:
+            return 0.0
+        return float(np.sign(e) * np.clip(2.0 * abs(e), 0.35, 0.7))     # under ~0.3 rad/s the walker stands still
+
+    def go(self, t: float, x: float, y: float, yaw: float) -> np.ndarray:
+        if t >= self.next_plan or self.path is None:
+            self.next_plan = t + REPLAN
+            self.replan(x, y)
+        if self.path is None or not self.going:
+            return np.array([self.make_room(x, y, yaw), 0.0, self.face(x, y, yaw)])
+        vx, wz, remaining = self.follower.command(self.path, x, y, yaw)
+        if remaining < 0.05:
+            self.going = False
+            if self.mode == "vem":
+                self.mode, self.said = "fica", "vem: cheguei"
+            return np.array([0.0, 0.0, self.face(x, y, yaw)])
+        self.turning = False
+        return np.array([vx, 0.0, wz])
+
+    def step_out(self, want: np.ndarray, x: float, y: float, yaw: float) -> np.ndarray:
+        """About to turn in place too close to something: step (sideways or back, no turning) toward the nearest
+        spot with room to turn."""
+        fmap = self.dynamic_map()
+        if fmap.clearance_at((x, y)) >= TURN_CLEAR:
+            return want
+        xs, ys = fmap.cell_centres()
+        d2 = np.where(fmap.clearance >= TURN_CLEAR + 0.05, (xs - x) ** 2 + (ys - y) ** 2, np.inf)
+        i = np.unravel_index(np.argmin(d2), d2.shape)
+        dx, dy = xs[i] - x, ys[i] - y
+        c, s = math.cos(yaw), math.sin(yaw)
+        local = np.array([c * dx + s * dy, -s * dx + c * dy])
+        local = 0.1 * local / max(np.linalg.norm(local), 1e-6)     # the walker's limits: vx >= -0.1, |vy| <= 0.1
+        return np.array([local[0], local[1], 0.0])
+
+    def make_room(self, x: float, y: float, yaw: float) -> float:
+        """siga: back off slowly when the person is closer than the follow ring and there is room behind."""
+        if self.mode != "siga" or self.dist(x, y) >= FOLLOW_RING[0] - 0.1:
+            return 0.0
+        behind = (x - 0.2 * math.cos(yaw), y - 0.2 * math.sin(yaw))
+        return -0.1 if self.static.clearance_at(behind) > 0.06 else 0.0
+
+    def dist(self, x: float, y: float) -> float:
+        p = self.person.xy
+        return float(np.hypot(p[0] - x, p[1] - y))
+
+    def replan(self, x: float, y: float):
+        p = self.person.xy
+        dist = float(np.hypot(p[0] - x, p[1] - y))
+        sees = self.static.segment_clear((x, y), p, 0.02)
+        if self.mode == "siga" and not self.going and dist < FOLLOW_START and sees:
+            self.path = []            # close enough and in sight: wait, facing them
+            return
+        self.planner.plan(self.dynamic_map(), (x, y))
+        ring = COME_RING if self.mode == "vem" else FOLLOW_RING
+        if self.mode == "vem" and dist <= ring[1] and sees:
+            self.mode, self.said, self.path = "fica", "vem: já estou aqui", None
+            return
+        cell, cost = self.planner.best_near(p, ring, see_from=self.static)
+        if cell is None:
+            self.path, self.going = None, False
+            self.said = f"{self.mode}: não acho caminho"
+            return
+        self.path = self.planner.path_to(cell)
+        self.going = path_length(self.path) > 0.05
+        self.said = f"{self.mode}: {path_length(self.path):.1f} m"
+
+    def reflex_check(self, want: np.ndarray, x: float, y: float, yaw: float) -> np.ndarray:
+        """Hold forward motion when the spot ~15 cm ahead touches anything (the person included)."""
+        if want[0] <= 0.0:
+            return want
+        fmap = self.dynamic_map()
+        ahead = (x + 0.15 * math.cos(yaw), y + 0.15 * math.sin(yaw))
+        if fmap.clearance_at(ahead) < 0.05:
+            self.reflex += 1
+            return np.array([0.0, want[1], want[2]])
+        return want
+
+
+class Pet:
+    """The robot (walk v10, get-up v8), the person and the brain on one MjData."""
+
+    def __init__(self, xml: Path = APARTMENT_XML, seed: int = 0, vmax: float = 0.25, person_speed: float = 0.25,
+                 delay: int = 0):
+        self.sim = play.Sim2Sim(xml, latest_checkpoint(WALK), delay_steps=delay, seed=seed)
+        self.getup = play.GetupPolicy(self.sim, latest_checkpoint(GETUP))
+        self.m, self.d, self.dt = self.sim.m, self.sim.d, self.sim.dt
+        self.person = Person(self.m, self.d, person_speed)
+        self.person.place(*self.person.xy)
+        mujoco.mj_forward(self.m, self.d)
+        self.brain = Brain(self.m, self.d, self.person, self.dt, vmax)
+        self.mode, self.falls, self.t = "walking", 0, 0.0
+        robot = np.array([self.m.body_rootid[self.m.geom_bodyid[g]] == 1 for g in range(self.m.ngeom)])
+        static = (self.m.geom_bodyid == 0) & (self.m.geom_type != mujoco.mjtGeom.mjGEOM_PLANE)
+        person = self.m.geom_bodyid == self.m.body("person").id
+        self._robot, self._bump = robot, static | person
+        self.bumps = 0                 # control steps with the robot touching furniture, a wall or the person
+
+    def say(self, text: str) -> str | None:
+        return self.brain.hear(text)
+
+    def step(self):
+        self.person.step(self.dt, avoid=self.d.xpos[1, :2], fmap=self.brain.static)
+        if self.mode == "walking":
+            self.sim.command[:] = self.brain.step(self.t)
+            self.sim.step()
+            if self.sim.fallen():
+                self.falls += 1
+                self.getup.start()
+                self.mode = "getting up"
+        else:
+            self.getup.step()
+            if self.getup.ready():
+                self.sim.handover()
+                self.mode = "walking"
+        c = self.d.contact[:self.d.ncon]
+        g1, g2 = c.geom1, c.geom2
+        if np.any((self._robot[g1] & self._bump[g2]) | (self._robot[g2] & self._bump[g1])):
+            self.bumps += 1
+        self.t += self.dt
+
+    def run(self, seconds: float, each=None):
+        for _ in range(int(round(seconds / self.dt))):
+            self.step()
+            if each is not None:
+                each(self)
+
+    def distance(self) -> float:
+        x, y, _ = self.brain.pose()
+        return float(np.hypot(*(self.person.xy - (x, y))))
+
+    def facing_error(self) -> float:
+        x, y, yaw = self.brain.pose()
+        p = self.person.xy
+        return abs(math.degrees(wrap(math.atan2(p[1] - y, p[0] - x) - yaw)))
+
+    def speed(self) -> float:
+        return float(np.linalg.norm(self.d.qvel[:2]))
+
+
+# -- the scenarios ---------------------------------------------------------------------------------------------
+def scenario_come(person_xy, seconds: float = 40.0, **opts) -> dict:
+    """The person stands at `person_xy`; 'vem' from the start pose; when (and how) does the robot get there?"""
+    pet = Pet(**opts)
+    pet.person.place(*person_xy, yaw=math.pi)
+    pet.say("vem aqui")
+    arrived = [None]
+
+    def watch(p):
+        if arrived[0] is None and p.brain.mode == "fica" and p.speed() < 0.05:
+            arrived[0] = p.t
+
+    pet.run(seconds, watch)
+    return dict(arrived=arrived[0], dist=pet.distance(), facing=pet.facing_error(), falls=pet.falls,
+                bumps=pet.bumps, reflex=pet.brain.reflex)
+
+
+def scenario_follow(seconds: float = 90.0, stop_at: float | None = None, resume_at: float | None = None,
+                    **opts) -> dict:
+    """'siga', then the person walks the tour (into the corridor and back). Optionally 'pare' at `stop_at` and
+    'siga' again at `resume_at`."""
+    pet = Pet(**opts)
+    pet.say("me segue")
+    pet.person.walk(TOUR)
+    dists, stop, reach = [], {}, []
+
+    def watch(p):
+        if stop_at is not None and abs(p.t - stop_at) < p.dt / 2:
+            p.say("pare")
+            stop["xy"] = np.array(p.brain.pose()[:2])
+            stop["v"] = p.speed()
+        if "xy" in stop and "still" not in stop and p.speed() < 0.03 and p.t > stop_at:
+            stop["still"] = p.t - stop_at
+        if resume_at is not None and abs(p.t - resume_at) < p.dt / 2:
+            stop["drift"] = float(np.linalg.norm(np.array(p.brain.pose()[:2]) - stop["xy"]))
+            p.say("siga")
+        if stop_at is None or p.t < stop_at or (resume_at is not None and p.t > resume_at + 15.0):
+            dists.append(p.distance())
+        reach.append(p.brain.pose()[0])
+
+    pet.run(seconds, watch)
+    d = np.array(dists)
+    return dict(mean=float(d.mean()), p90=float(np.percentile(d, 90)), max=float(d.max()), min=float(d.min()),
+                end=pet.distance(), far_x=max(reach), falls=pet.falls, bumps=pet.bumps,
+                reflex=pet.brain.reflex, **stop)
+
+
+def scenario_stay(seconds: float = 75.0, **opts) -> dict:
+    """'fica', then the person walks the tour around it: the robot stays put and keeps facing them."""
+    pet = Pet(**opts)
+    pet.say("fica")
+    pet.person.walk(TOUR)
+    start = np.array(pet.brain.pose()[:2])
+    errs = []
+    pet.run(seconds, lambda p: errs.append(p.facing_error()))
+    e = np.array(errs)
+    return dict(drift=float(np.linalg.norm(np.array(pet.brain.pose()[:2]) - start)),
+                facing_mean=float(e.mean()), facing_p90=float(np.percentile(e, 90)), falls=pet.falls,
+                bumps=pet.bumps)
+
+
+def run_tests(**opts) -> int:
+    fmt = lambda r: "  ".join(f"{k} {v:.2f}" if isinstance(v, float) else f"{k} {v}" for k, v in r.items())
+    print(f"options: {opts}")
+    for name, xy in (("beside the sofa", (2.0, 1.2)), ("in the corridor", (4.2, -1.25)),
+                     ("behind the robot", (-1.0, 0.0))):
+        print(f"vem, person {name} {xy}: " + fmt(scenario_come(xy, **opts)))
+    print("siga, tour: " + fmt(scenario_follow(**opts)))
+    print("siga, pare at 15 s, siga at 30 s: " + fmt(scenario_follow(stop_at=15.0, resume_at=30.0, **opts)))
+    print("fica, person on the tour: " + fmt(scenario_stay(**opts)))
+    return 0
+
+
+def plot(out: Path, **opts) -> Path:
+    """Top view: the floor map, and the robot's and the person's tracks on 'siga' (the tour) and 'vem' (corridor)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    runs = []
+    for title, setup in (("siga: a pessoa faz a volta (sala, corredor, sala)", lambda p: (p.say("siga"),
+                                                                                        p.person.walk(TOUR))),
+                         ("vem: a pessoa chama do corredor", lambda p: (p.person.place(4.2, -1.25, math.pi),
+                                                                        p.say("vem")))):
+        pet = Pet(**opts)
+        setup(pet)
+        robot, person = [], []
+        pet.run(90.0 if "siga" in title else 25.0,
+                lambda p: (robot.append(p.brain.pose()[:2]), person.append(p.person.xy)))
+        runs.append((title, pet.brain.static, np.array(robot), np.array(person)))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.6))
+    for ax, (title, fmap, robot, person) in zip(axes, runs):
+        x0, y0 = fmap.origin
+        n, k = fmap.occupied.shape
+        ax.imshow(np.where(fmap.occupied, 0.25, np.where(fmap.clearance < 0.1, 0.8, 1.0)).T, origin="lower",
+                  cmap="gray", vmin=0, vmax=1, extent=(x0, x0 + n * fmap.res, y0, y0 + k * fmap.res))
+        ax.plot(person[:, 0], person[:, 1], color="tab:orange", lw=2, label="pessoa")
+        ax.plot(robot[:, 0], robot[:, 1], color="tab:blue", lw=2, label="Cogu")
+        ax.plot(*robot[0], "o", color="tab:blue")
+        ax.plot(*person[-1], "s", color="tab:orange")
+        ax.set_title(title)
+        ax.set_aspect("equal")
+        ax.set_xlim(-1.7, 5.2)
+        ax.set_ylim(-1.95, 1.95)
+        ax.legend(loc="upper right")
+    fig.tight_layout()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=110)
+    return out
+
+
+def record(out: Path, seconds: float = 90.0, speedup: float = 2.0, **opts) -> Path:
+    """A video of 'siga' on the tour, from above the robot (`speedup` × real time)."""
+    import imageio.v2 as imageio
+
+    pet = Pet(**opts)
+    pet.say("siga")
+    pet.person.walk(TOUR)
+    renderer = mujoco.Renderer(pet.m, 480, 720)
+    cam = mujoco.MjvCamera()
+    cam.type = mujoco.mjtCamera.mjCAMERA_TRACKING
+    cam.trackbodyid = 1
+    cam.distance, cam.elevation, cam.azimuth = 3.4, -72.0, 0.0     # above the 2.4 m walls (no ceiling here)
+    every = max(int(round(speedup / (30.0 * pet.dt))), 1)
+    with imageio.get_writer(out, fps=30, macro_block_size=8) as w:
+        for i in range(int(round(seconds / pet.dt))):
+            pet.step()
+            if i % every == 0:
+                renderer.update_scene(pet.d, cam)
+                w.append_data(renderer.render())
+    return out
+
+
+# -- the viewer ------------------------------------------------------------------------------------------------
+def run_viewer(pet: Pet, speed: float = 1.0) -> int:
+    import mujoco.viewer
+
+    heard: queue.Queue[str] = queue.Queue()
+
+    def listen():
+        for line in sys.stdin:
+            heard.put(line.strip())
+
+    threading.Thread(target=listen, daemon=True).start()
+
+    def on_key(key: int):
+        if key == play.KEY_END:
+            heard.put("pare")
+
+    print("type: siga / pare / vem / fica (and Enter); andar / parar move the person; End = pare")
+    with mujoco.viewer.launch_passive(pet.m, pet.d, key_callback=on_key) as v:
+        v.cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+        v.cam.fixedcamid = pet.m.camera("overview").id
+        while v.is_running():
+            t0 = time.perf_counter()
+            with v.lock():
+                while not heard.empty():
+                    text = heard.get()
+                    if text == "andar":
+                        pet.person.walk(TOUR)
+                    elif text == "parar":
+                        pet.person.walk([])
+                    elif text:
+                        print(f"  -> {pet.say(text)}")
+                mujoco.mjv_applyPerturbPose(pet.m, pet.d, v.perturb, 0)    # drag the person (a mocap body)
+                pet.step()
+            b, c = pet.brain, pet.brain.cmd
+            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls",
+                         f"{b.mode}\n{b.said}\nvx {c[0]:+.2f}  wz {c[2]:+.2f}\n{pet.distance():.2f} m\n{pet.falls}"))
+            v.sync()
+            sleep = pet.dt / speed - (time.perf_counter() - t0)
+            if sleep > 0:
+                time.sleep(sleep)
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--test", action="store_true", help="run the scenarios headless and print their numbers")
+    ap.add_argument("--speed", type=float, default=1.0, help="viewer playback speed")
+    ap.add_argument("--delay", type=int, default=0, help="actuator latency, 20 ms steps (walk training: 0–2)")
+    ap.add_argument("--person-speed", type=float, default=0.25, help="m/s (the robot walks up to 0.25)")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--plot", nargs="?", const=str(REPO_ROOT / "docs" / "renders" / "sim_pet_commands.png"),
+                    help="top view of the tracks on 'siga' and 'vem' (default docs/renders/sim_pet_commands.png)")
+    ap.add_argument("--video", nargs="?", const=str(REPO_ROOT / "docs" / "renders" / "sim_pet_siga.mp4"),
+                    help="video of 'siga' on the tour, 2x (default docs/renders/sim_pet_siga.mp4)")
+    args = ap.parse_args(argv)
+    opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed)
+    if args.test:
+        return run_tests(**opts)
+    if args.plot or args.video:
+        for out in filter(None, (args.plot and plot(Path(args.plot), **opts),
+                                 args.video and record(Path(args.video), **opts))):
+            print(out)
+        return 0
+    return run_viewer(Pet(**opts), args.speed)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
