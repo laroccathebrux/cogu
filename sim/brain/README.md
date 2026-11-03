@@ -8,6 +8,7 @@ MuJoCo, antes do app em Swift. Tudo que o celular vai ver sai da câmera `phone_
 | `apartment.py` | Monta um apartamento em volta do robô com MjSpec (o MJCF do robô não é tocado) → `build/mjcf/apartment.xml` |
 | `phone_sensors.py` | O LiDAR do iPhone (`Lidar`) e a posição do ARKit (`ArkitPose`), simulados a partir da `phone_cam` |
 | `navigation.py` | Mapa do chão, planejador e seguidor de caminho que viram o comando da marcha (vx, vy, wz) |
+| `perception.py` | O que o cérebro sabe: o estado verdadeiro, ou só o celular (mapa do LiDAR, pose do ARKit, pessoa e bola pela câmera) |
 | `pet.py` | Os comandos simples (pare, fica, vem, siga) no apartamento, a pessoa que anda, os cenários de teste e o viewer |
 
 ## Apartamento
@@ -79,15 +80,15 @@ robô a 40 cm sem atravessar parede, como alguém que contorna o bicho no caminh
 mouse.
 
 ```bash
-uv run python sim/brain/pet.py --test                      # cenários sem janela (~20 s)
-uv run python sim/brain/pet.py --plot --video              # -> docs/renders/sim_pet_commands.png, sim_pet_siga.mp4
-uv run mjpython sim/brain/pet.py                           # viewer: digite os comandos no terminal e Enter
+uv run python sim/brain/pet.py --test --perception true    # cenários sem janela (~20 s)
+uv run python sim/brain/pet.py --plot --video --perception true   # -> sim_pet_commands.png, sim_pet_siga.mp4
+uv run mjpython sim/brain/pet.py --perception true        # viewer: digite os comandos no terminal e Enter
 ```
 
 No viewer, digite `siga`, `pare`, `vem` ou `fica` no terminal (é o lugar da fala). `andar` faz a pessoa dar a volta e
 `parar` a segura. End é "pare". Para mover a pessoa, clique duas vezes nela e arraste com Ctrl + botão direito.
 
-Resultados (2026-11-03, `--test`, sem atraso nos servos):
+Resultados (2026-11-03, `--test --perception true`, sem atraso nos servos):
 
 | Cenário | Resultado |
 |---|---|
@@ -96,7 +97,7 @@ Resultados (2026-11-03, `--test`, sem atraso nos servos):
 | vem, pessoa atrás do robô (−1,0; 0) | sai de perto da mesa, vira, chega em 8,2 s, 0,66 m |
 | siga, a volta inteira (90 s) | distância média 0,97 m, 90% do tempo abaixo de 1,34 m, máximo 1,43 m, mínimo 0,39 m; entra no corredor (x 3,4 m) |
 | siga, pare aos 15 s, siga aos 30 s | parado em 0,42 s, desloca 2 cm até o "siga"; depois segue como antes |
-| fica, a pessoa dá a volta | sai 28 cm do lugar (girar no lugar desliza), erro médio de 20° para a pessoa |
+| fica, a pessoa dá a volta | sai 25 cm do lugar (girar no lugar desliza), erro médio de 20° para a pessoa |
 
 Nenhuma queda e nenhum toque em móvel, parede ou pessoa em nenhum cenário. Com 40 ms de atraso nos servos
 (`--delay 2`), os números ficam parecidos. A exceção é o "vem" ao lado do sofá: o pé encosta na mesa em 2 passos
@@ -111,10 +112,72 @@ Revisável:
 - no "fica" ele só gira (sem voltar ao ponto) e desliza ~30 cm numa volta inteira da pessoa;
 - distâncias: 0,5–0,6 m no "vem" e 0,7–0,8 m no "siga".
 
+## Percepção só pelo celular
+
+Os mesmos comandos, agora sabendo só o que o iPhone vai saber (`perception.py`, `PhonePerception`); é o padrão do
+`pet.py` (`--perception true` volta à posição verdadeira). Nada do estado verdadeiro chega ao cérebro:
+
+- **posição**: a do ARKit (50 ms atrasada, com deriva e ruído), levada da câmera à pelve pela montagem do celular;
+- **mapa**: o LiDAR 10 vezes por segundo, cada quadro com a sua pose do ARKit, num grid de 4 cm (log-odds). Dois
+  pontos numa célula entre 5 e 45 cm de altura, a menos de 3,5 m, são obstáculo; um ponto do chão (abaixo de 3 cm)
+  libera a célula. O que ele nunca viu é passável, mas custa 3 vezes mais. Tudo fica no referencial do ARKit e deriva
+  com ele, como no celular;
+- **pessoa**: a segmentação de pessoas do ARKit (`personSegmentationWithDepth`). A posição é a mediana dos pontos do
+  LiDAR na máscara, 10 cm para trás (o meio das pernas). Um quadro em 10 falha, e menos de 60 pixels não é detecção.
+  Os pixels dela saem do mapa, e os do próprio robô também;
+- **bola**: um detector de objetos (Core ML), centrada atrás dos pontos que ele vê;
+- no simulador as duas detecções saem da renderização de segmentação da `phone_cam`, a mesma do LiDAR; as falhas
+  são sorteadas.
+
+O que muda no comportamento:
+- com a pessoa fora da vista, o cérebro vai até onde a viu por último (ou para onde ela ia, até 1,5 s à frente) e,
+  se ela não estiver lá, gira no lugar procurando;
+- sem nunca a ter visto, gira até achá-la;
+- no "fica", ele vira para onde a viu por último.
+
+Um erro do simulador apareceu no caminho. O LiDAR usava a pose atrasada do ARKit, e o balanço da marcha virava
+obstáculo falso no chão longe. No ARKit, cada quadro de profundidade vem com a pose do próprio quadro
+(`ArkitPose.now`).
+
+Resultados (2026-11-03, `--test`, sementes 0 e 2, e 1 com 40 ms de atraso nos servos):
+
+| Cenário | Posição verdadeira | Só o celular |
+|---|---|---|
+| vem, pessoa ao lado do sofá | 10,2 s, para a 0,64 m | 11,1–11,8 s, 0,67–0,69 m |
+| vem, pessoa no corredor | 19,1 s, 0,65 m | 19,3–21,4 s, 0,56–0,60 m |
+| vem, pessoa atrás do robô (fora da vista) | 8,2 s, 0,66 m | 8,6–9,2 s, 0,58–0,59 m (gira até achar) |
+| siga, a volta inteira | média 0,97 m, máximo 1,43 m | média 1,11–1,16 m, máximo 2,2–2,5 m |
+| siga, pare aos 15 s | parado em 0,42 s, 2 cm | parado em 0,2–0,65 s, 2 cm |
+| fica, a pessoa dá a volta | 20° de erro médio, 90% < 27° | 20–21° de erro médio, 90% < 60° (fora da vista) |
+
+Nenhuma queda. No "siga" com o celular, ele demora no começo porque a pessoa está atrás dele, fora da vista, e
+ele gira para o lado errado antes de achá-la; depois segue como antes. O reflexo segura o avanço por 0,7 a 1,3 s na
+porta, quando os dois se cruzam. Num "fica" (semente 0), ele encosta o domo na mesa de centro por 3 passos de
+controle e o pé num pé da mesa por 1. A mesa está a 90° à esquerda dele no começo, fora dos 90° de campo da câmera,
+então o passo de lado antes de girar não a conhece.
+
+![trajetos com a percepção do celular e o mapa que ele montou](../../docs/renders/sim_pet_phone.png)
+
+O mapa que ele montou na volta (à direita) tem as paredes, o sofá, o rack, a planta, a bola e a frente e os lados da
+mesa de centro. O tampo é visto só de lado, porque a câmera fica a 38,6 cm, na altura dele.
+
+```bash
+uv run python sim/brain/pet.py --test                      # só o celular (padrão)
+uv run python sim/brain/pet.py --test --perception true    # a posição verdadeira
+uv run python sim/brain/pet.py --plot --video              # -> docs/renders/sim_pet_phone.png, sim_pet_siga_phone.mp4
+```
+
+Revisável:
+- procurar girando no lugar. Uma alternativa é ir explorar o que ele nunca viu ou perguntar "cadê você?"; isso entra
+  com a memória do mundo e a conversa;
+- células nunca vistas são passáveis (otimista): mais rápido, mas ele descobre os obstáculos ao chegar perto;
+- a detecção da pessoa é a segmentação do simulador com falhas sorteadas, não uma rede rodando sobre a imagem
+  renderizada.
+
 ## Próximos passos
 
 1. ~~Navegação e comandos com percepção perfeita (posição verdadeira da pessoa e da bola): siga, pare, vem, fica.~~
    Feito (acima).
-2. Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.
+2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
 3. Memória do mundo e motor de comportamento.
 4. Conversa (ElevenLabs e o modelo local) por cima, chamando as mesmas ferramentas.

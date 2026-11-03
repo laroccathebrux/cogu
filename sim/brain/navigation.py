@@ -25,6 +25,7 @@ from scipy.sparse import csgraph
 RESOLUTION = 0.04     # m per cell
 ROBOT_RADIUS = 0.10   # m: the leg boxes reach 8 cm from the pelvis; a swinging foot ~2 cm more
 CLEAR = 0.30          # m: closer than this to an obstacle costs extra (up to 4x the distance at the wall)
+UNKNOWN_COST = 3.0    # never-seen cells cost this many times more (paths keep to what was seen)
 ROBOT_TOP = 0.45      # m: anything whose bottom is lower blocks the robot (the coffee table's top is at 0.375)
 
 # vectorised 8-neighbourhood: (di, dj, length in cells)
@@ -38,8 +39,10 @@ def wrap(a: float) -> float:
 class FloorMap:
     """`occupied[i, j]` is the cell at x = x0 + (i + 0.5) res, y = y0 + (j + 0.5) res."""
 
-    def __init__(self, occupied: np.ndarray, origin: tuple[float, float], res: float = RESOLUTION):
+    def __init__(self, occupied: np.ndarray, origin: tuple[float, float], res: float = RESOLUTION,
+                 unknown: np.ndarray | None = None):
         self.occupied, self.origin, self.res = occupied, np.asarray(origin, float), res
+        self.unknown = unknown        # cells never seen (a map from the sensors): passable, but they cost more
         # clearance of each cell centre: distance to the nearest occupied cell's edge (half a cell short of its centre)
         self.clearance = np.maximum(ndimage.distance_transform_edt(~occupied) * res - res / 2, 0.0)
 
@@ -75,7 +78,7 @@ class FloorMap:
         xs, ys = self.cell_centres()
         for x, y, r in circles:
             occ |= (xs - x) ** 2 + (ys - y) ** 2 <= r * r
-        return FloorMap(occ, self.origin, self.res)
+        return FloorMap(occ, self.origin, self.res, self.unknown)
 
     def cell_centres(self):
         n, k = self.occupied.shape
@@ -118,6 +121,8 @@ class Planner:
         passable |= ((ii - si) ** 2 + (jj - sj) ** 2 <= (0.2 / fmap.res) ** 2) & (c > 0.03)
         passable[si, sj] = True
         cost = 1.0 + 3.0 * np.clip((self.clear - c) / (self.clear - self.radius), 0.0, 1.0)
+        if fmap.unknown is not None:
+            cost = np.where(fmap.unknown, UNKNOWN_COST * cost, cost)
         idx = np.arange(n * k).reshape(n, k)
         rows, cols, weights = [], [], []
         for di, dj, length in _MOVES:
@@ -148,9 +153,10 @@ class Planner:
         pts[0] = self.start.copy()
         return self.smooth(pts)
 
-    def best_near(self, target, ring: tuple[float, float], see_from: FloorMap | None = None):
+    def best_near(self, target, ring: tuple[float, float], see_from: FloorMap | None = None, los: bool = True):
         """The cheapest reachable cell `ring[0]`–`ring[1]` m from `target` that has a line of sight to it (through
-        `see_from`'s static obstacles: the person is not one), as (cell, path cost m) or (None, inf)."""
+        `see_from`'s static obstacles: the person is not one; `los` False: any), as (cell, path cost m) or
+        (None, inf)."""
         xs, ys = self.fmap.cell_centres()
         r2 = (xs - target[0]) ** 2 + (ys - target[1]) ** 2
         cand = (r2 >= ring[0] ** 2) & (r2 <= ring[1] ** 2) & self.passable & np.isfinite(self.dist)
@@ -159,7 +165,7 @@ class Planner:
             cell = np.unravel_index(flat, self.dist.shape)
             if not cand[cell]:
                 break
-            if see.segment_clear(self.fmap.point(cell), target, 0.02):
+            if not los or see.segment_clear(self.fmap.point(cell), target, 0.02):
                 return (int(cell[0]), int(cell[1])), float(self.dist[cell])
         return None, math.inf
 

@@ -1,17 +1,20 @@
-"""The pet's simple commands in the apartment, with perfect perception (ADR-004; sim/brain/README.md, step 1).
+"""The pet's simple commands in the apartment (ADR-004; sim/brain/README.md, steps 1 and 2).
 
     uv run python sim/brain/apartment.py                        # once: build/mjcf/apartment.xml
     uv run mjpython sim/brain/pet.py                            # viewer; type the commands in the terminal
     uv run python sim/brain/pet.py --test                       # the scenarios, headless, with their numbers
-    uv run python sim/brain/pet.py --plot --video               # -> docs/renders/sim_pet_commands.png, sim_pet_siga.mp4
+    uv run python sim/brain/pet.py --plot --video               # -> docs/renders/sim_pet_phone.png, sim_pet_siga_phone.mp4
+    uv run python sim/brain/pet.py --test --perception true     # the same with the true positions (no sensors)
 
 Commands (what the phone's speech recognition will hand over, no LLM in between): **pare** (stop now, stay stopped),
 **fica** (stay here, keep facing the person), **vem** (come to the person and stop in front of them, then fica),
 **siga** (follow the person, ~0.75 m behind, through doors). Synonyms: para / stop / chega; fique / espera;
 vem aqui / aqui; segue / me segue / vem comigo.
 
-The brain reads the true poses (the robot's pelvis, the person, the ball) and walks with walk v10: every 0.5 s it
-replans on a floor map of the furniture plus the person and the ball; between replans it follows the path. A fall
+The brain reads what a perception (perception.py) knows: by default only the phone's sensors (the LiDAR map, the
+ARKit pose, the person and the ball from the camera), or the true state (`--perception true`). It walks with walk
+v10: every 0.5 s it replans on the floor map plus the person and the ball; between replans it follows the path. A
+person out of sight is looked for where they were last (or were heading), then by turning in place. A fall
 hands over to get-up v8, then the command carries on. A reflex stops forward motion when something is about to touch
 the robot, whatever the plan says.
 
@@ -39,6 +42,7 @@ import numpy as np  # noqa: E402
 
 import play  # noqa: E402
 from navigation import FloorMap, PathFollower, Planner, path_length, wrap  # noqa: E402
+from perception import PhonePerception, TruePerception, true_pose  # noqa: E402
 from rollout import latest_checkpoint  # noqa: E402
 
 REPO_ROOT = HERE.parents[1]
@@ -53,6 +57,7 @@ COME_RING = (0.50, 0.60)  # m from the person: where "vem" stops
 FOLLOW_RING = (0.70, 0.80)
 FOLLOW_START = 1.0        # m: "siga" sets off again when the person is farther than this (or out of sight)
 REPLAN = 0.5              # s
+LOST = 1.0                # s without seeing the person: out of sight
 TURN_CLEAR = 0.14         # m: turning in place sweeps ~11 cm around the pelvis (plus some drift); closer to
                           # something than this, the robot first steps sideways / back out of there
 
@@ -125,6 +130,9 @@ class Person:
             self.d.mocap_pos[self.mocap, :2] = goal
             self.route.pop(0)
             return
+        if avoid is not None and gap < 0.15 and np.linalg.norm(p - np.asarray(avoid)) < AVOID + 0.1:
+            self.route.pop(0)                     # the robot is about on the waypoint: close enough, go on
+            return
         heading = (goal - p) / gap
         if avoid is not None:
             # the direction closest to the goal's whose point 0.3 m ahead keeps clear of the robot and the walls
@@ -132,10 +140,12 @@ class Person:
             for a in sorted(np.radians(np.arange(-90, 91, 10)), key=lambda a: (abs(a), a)):
                 c, s_ = math.cos(a), math.sin(a)
                 h = np.array([c * heading[0] - s_ * heading[1], s_ * heading[0] + c * heading[1]])
-                q = p + 0.3 * h
+                q, step = p + 0.3 * h, p + self.speed * dt * h
                 if fmap is not None and fmap.clearance_at(q) < 0.15:
                     continue
                 if np.linalg.norm(q - o) < AVOID and np.linalg.norm(q - o) < np.linalg.norm(p - o):
+                    continue
+                if np.linalg.norm(step - o) < min(AVOID, np.linalg.norm(p - o)):    # never closer than AVOID
                     continue
                 heading = h
                 break
@@ -147,32 +157,45 @@ class Person:
 
 
 class Brain:
-    """Commands -> the walk command, from true poses. `hear(text)`, then `step(t)` every control step."""
+    """Commands -> the walk command, from what `perception` knows (perception.py: the true state, or only the phone's
+    sensors). `hear(text)`, then `step(t)` every control step."""
 
-    def __init__(self, m: mujoco.MjModel, d: mujoco.MjData, person: Person, dt: float, vmax: float = 0.25):
-        self.m, self.d, self.person, self.dt = m, d, person, dt
-        self.static = FloorMap.from_model(m, d)
+    def __init__(self, perception, dt: float, vmax: float = 0.25):
+        self.perception, self.dt = perception, dt
         self.planner = Planner()
         self.follower = PathFollower(vmax=vmax)
-        self.ball = m.body("ball").id
         self.mode, self.said = "fica", ""
         self.path: list | None = None
         self.next_plan = 0.0
-        self.going = False            # siga: walking after the person (else waiting, facing them)
+        self.going = False            # vem / siga: walking to the goal (else waiting, facing the person)
         self.turning = False          # facing: turning in place (hysteresis)
+        self.searching = False        # the person is out of sight where they were last: look around
         self.cmd = np.zeros(3)
         self.reflex = 0               # steps the reflex held the robot back
+        self.t = 0.0
+        self._dyn, self._dyn_t = None, -math.inf
 
-    # -- poses (perfect perception) ------------------------------------------------------------------------
+    # -- what it knows -------------------------------------------------------------------------------------
     def pose(self) -> tuple[float, float, float]:
-        x, y = self.d.xpos[1, :2]
-        fwd = self.d.xmat[1].reshape(3, 3)[:, 0]
-        return float(x), float(y), math.atan2(fwd[1], fwd[0])
+        return self.perception.robot()
+
+    def person(self):
+        """(x, y) or None, and whether they are in sight now (seen in the last `LOST` s)."""
+        xy, age = self.perception.person()
+        return xy, age < LOST
 
     def dynamic_map(self) -> FloorMap:
-        bx, by = self.d.xpos[self.ball, :2]
-        px, py = self.person.xy
-        return self.static.with_circles([(px, py, PERSON_RADIUS), (bx, by, BALL_RADIUS)])
+        """The floor map plus the person (while in sight) and the ball, refreshed 10 times a second."""
+        if self._dyn is None or self.t - self._dyn_t >= 0.1:
+            circles = []
+            p, seen = self.person()
+            if p is not None and seen:
+                circles.append((p[0], p[1], PERSON_RADIUS))
+            b, age = self.perception.ball()
+            if b is not None and age < 5.0:
+                circles.append((b[0], b[1], BALL_RADIUS))
+            self._dyn, self._dyn_t = self.perception.floor().with_circles(circles), self.t
+        return self._dyn
 
     # -- commands ------------------------------------------------------------------------------------------
     def hear(self, text: str) -> str | None:
@@ -180,13 +203,15 @@ class Brain:
         if cmd is None:
             self.said = f"? '{text}'"
             return None
-        self.mode, self.path, self.next_plan, self.going, self.turning = cmd, None, 0.0, False, False
+        self.mode, self.path, self.next_plan = cmd, None, 0.0
+        self.going = self.turning = self.searching = False
         if cmd == "pare":
             self.cmd[:] = 0.0         # no ramp: stop now
         self.said = cmd
         return cmd
 
     def step(self, t: float) -> np.ndarray:
+        self.t = t
         x, y, yaw = self.pose()
         want = np.zeros(3)
         if self.mode == "fica":
@@ -205,8 +230,10 @@ class Brain:
 
     def face(self, x: float, y: float, yaw: float) -> float:
         """wz that turns toward the person, with a dead band (start past 25°, stop under 8°)."""
-        px, py = self.person.xy
-        e = wrap(math.atan2(py - y, px - x) - yaw)
+        p, _ = self.person()
+        if p is None:
+            return 0.0
+        e = wrap(math.atan2(p[1] - y, p[0] - x) - yaw)
         if abs(e) > math.radians(25):
             self.turning = True
         elif abs(e) < math.radians(8):
@@ -215,15 +242,33 @@ class Brain:
             return 0.0
         return float(np.sign(e) * np.clip(2.0 * abs(e), 0.35, 0.7))     # under ~0.3 rad/s the walker stands still
 
+    def search(self, x: float, y: float, yaw: float) -> np.ndarray:
+        """Turn in place to look for the person: toward where they were last, else to the left."""
+        p, _ = self.person()
+        side = 1.0 if p is None else (1.0 if wrap(math.atan2(p[1] - y, p[0] - x) - yaw) >= 0.0 else -1.0)
+        if not self.searching:
+            self.searching, self.search_side = True, side
+        self.said = f"{self.mode}: procurando"
+        return np.array([0.0, 0.0, 0.7 * self.search_side])
+
     def go(self, t: float, x: float, y: float, yaw: float) -> np.ndarray:
+        p, seen = self.person()
+        if seen:
+            self.searching = False
+        if p is None or self.searching:
+            return self.search(x, y, yaw)
         if t >= self.next_plan or self.path is None:
             self.next_plan = t + REPLAN
             self.replan(x, y)
+            if self.searching:
+                return self.search(x, y, yaw)
         if self.path is None or not self.going:
             return np.array([self.make_room(x, y, yaw), 0.0, self.face(x, y, yaw)])
         vx, wz, remaining = self.follower.command(self.path, x, y, yaw)
         if remaining < 0.05:
             self.going = False
+            if not seen:              # got where they were last, and they aren't here: look around
+                return self.search(x, y, yaw)
             if self.mode == "vem":
                 self.mode, self.said = "fica", "vem: cheguei"
             return np.array([0.0, 0.0, self.face(x, y, yaw)])
@@ -247,35 +292,38 @@ class Brain:
 
     def make_room(self, x: float, y: float, yaw: float) -> float:
         """siga: back off slowly when the person is closer than the follow ring and there is room behind."""
-        if self.mode != "siga" or self.dist(x, y) >= FOLLOW_RING[0] - 0.1:
+        p, seen = self.person()
+        if self.mode != "siga" or not seen or np.hypot(p[0] - x, p[1] - y) >= FOLLOW_RING[0] - 0.1:
             return 0.0
         behind = (x - 0.2 * math.cos(yaw), y - 0.2 * math.sin(yaw))
-        return -0.1 if self.static.clearance_at(behind) > 0.06 else 0.0
-
-    def dist(self, x: float, y: float) -> float:
-        p = self.person.xy
-        return float(np.hypot(p[0] - x, p[1] - y))
+        return -0.1 if self.perception.floor().clearance_at(behind) > 0.06 else 0.0
 
     def replan(self, x: float, y: float):
-        p = self.person.xy
+        p, seen = self.person()
         dist = float(np.hypot(p[0] - x, p[1] - y))
-        sees = self.static.segment_clear((x, y), p, 0.02)
-        if self.mode == "siga" and not self.going and dist < FOLLOW_START and sees:
+        if seen and self.mode == "siga" and not self.going and dist < FOLLOW_START:
             self.path = []            # close enough and in sight: wait, facing them
             return
-        self.planner.plan(self.dynamic_map(), (x, y))
-        ring = COME_RING if self.mode == "vem" else FOLLOW_RING
-        if self.mode == "vem" and dist <= ring[1] and sees:
+        if seen and self.mode == "vem" and dist <= COME_RING[1]:
             self.mode, self.said, self.path = "fica", "vem: já estou aqui", None
             return
-        cell, cost = self.planner.best_near(p, ring, see_from=self.static)
+        if not seen and dist < 0.5:   # where they were last, and they aren't there
+            self.searching, self.path = False, None
+            self.search(x, y, yaw=self.pose()[2])
+            return
+        self.planner.plan(self.dynamic_map(), (x, y))
+        if seen:
+            ring = COME_RING if self.mode == "vem" else FOLLOW_RING
+            cell, _ = self.planner.best_near(p, ring, see_from=self.perception.floor())
+        else:                         # out of sight: go where they were last (or were heading)
+            cell, _ = self.planner.best_near(p, (0.0, 0.4), los=False)
         if cell is None:
             self.path, self.going = None, False
             self.said = f"{self.mode}: não acho caminho"
             return
         self.path = self.planner.path_to(cell)
         self.going = path_length(self.path) > 0.05
-        self.said = f"{self.mode}: {path_length(self.path):.1f} m"
+        self.said = f"{self.mode}: {path_length(self.path):.1f} m" + ("" if seen else " (onde vi por último)")
 
     def reflex_check(self, want: np.ndarray, x: float, y: float, yaw: float) -> np.ndarray:
         """Hold forward motion when the spot ~15 cm ahead touches anything (the person included)."""
@@ -293,14 +341,19 @@ class Pet:
     """The robot (walk v10, get-up v8), the person and the brain on one MjData."""
 
     def __init__(self, xml: Path = APARTMENT_XML, seed: int = 0, vmax: float = 0.25, person_speed: float = 0.25,
-                 delay: int = 0):
+                 delay: int = 0, perception: str = "phone"):
         self.sim = play.Sim2Sim(xml, latest_checkpoint(WALK), delay_steps=delay, seed=seed)
         self.getup = play.GetupPolicy(self.sim, latest_checkpoint(GETUP))
         self.m, self.d, self.dt = self.sim.m, self.sim.d, self.sim.dt
         self.person = Person(self.m, self.d, person_speed)
         self.person.place(*self.person.xy)
         mujoco.mj_forward(self.m, self.d)
-        self.brain = Brain(self.m, self.d, self.person, self.dt, vmax)
+        self.walls = FloorMap.from_model(self.m, self.d)          # the real walls, for the simulated person
+        if perception == "phone":
+            self.perception = PhonePerception(self.m, self.d, seed=seed)
+        else:
+            self.perception = TruePerception(self.m, self.d)
+        self.brain = Brain(self.perception, self.dt, vmax)
         self.mode, self.falls, self.t = "walking", 0, 0.0
         robot = np.array([self.m.body_rootid[self.m.geom_bodyid[g]] == 1 for g in range(self.m.ngeom)])
         static = (self.m.geom_bodyid == 0) & (self.m.geom_type != mujoco.mjtGeom.mjGEOM_PLANE)
@@ -312,7 +365,8 @@ class Pet:
         return self.brain.hear(text)
 
     def step(self):
-        self.person.step(self.dt, avoid=self.d.xpos[1, :2], fmap=self.brain.static)
+        self.person.step(self.dt, avoid=self.d.xpos[1, :2], fmap=self.walls)
+        self.perception.update(self.t, self.dt)
         if self.mode == "walking":
             self.sim.command[:] = self.brain.step(self.t)
             self.sim.step()
@@ -337,12 +391,18 @@ class Pet:
             if each is not None:
                 each(self)
 
+    def close(self):
+        self.perception.close()
+
+    def true_pose(self) -> tuple[float, float, float]:
+        return true_pose(self.d)
+
     def distance(self) -> float:
-        x, y, _ = self.brain.pose()
+        x, y, _ = self.true_pose()
         return float(np.hypot(*(self.person.xy - (x, y))))
 
     def facing_error(self) -> float:
-        x, y, yaw = self.brain.pose()
+        x, y, yaw = self.true_pose()
         p = self.person.xy
         return abs(math.degrees(wrap(math.atan2(p[1] - y, p[0] - x) - yaw)))
 
@@ -363,6 +423,7 @@ def scenario_come(person_xy, seconds: float = 40.0, **opts) -> dict:
             arrived[0] = p.t
 
     pet.run(seconds, watch)
+    pet.close()
     return dict(arrived=arrived[0], dist=pet.distance(), facing=pet.facing_error(), falls=pet.falls,
                 bumps=pet.bumps, reflex=pet.brain.reflex)
 
@@ -379,18 +440,19 @@ def scenario_follow(seconds: float = 90.0, stop_at: float | None = None, resume_
     def watch(p):
         if stop_at is not None and abs(p.t - stop_at) < p.dt / 2:
             p.say("pare")
-            stop["xy"] = np.array(p.brain.pose()[:2])
+            stop["xy"] = np.array(p.true_pose()[:2])
             stop["v"] = p.speed()
         if "xy" in stop and "still" not in stop and p.speed() < 0.03 and p.t > stop_at:
             stop["still"] = p.t - stop_at
         if resume_at is not None and abs(p.t - resume_at) < p.dt / 2:
-            stop["drift"] = float(np.linalg.norm(np.array(p.brain.pose()[:2]) - stop["xy"]))
+            stop["drift"] = float(np.linalg.norm(np.array(p.true_pose()[:2]) - stop["xy"]))
             p.say("siga")
         if stop_at is None or p.t < stop_at or (resume_at is not None and p.t > resume_at + 15.0):
             dists.append(p.distance())
-        reach.append(p.brain.pose()[0])
+        reach.append(p.true_pose()[0])
 
     pet.run(seconds, watch)
+    pet.close()
     d = np.array(dists)
     return dict(mean=float(d.mean()), p90=float(np.percentile(d, 90)), max=float(d.max()), min=float(d.min()),
                 end=pet.distance(), far_x=max(reach), falls=pet.falls, bumps=pet.bumps,
@@ -402,11 +464,12 @@ def scenario_stay(seconds: float = 75.0, **opts) -> dict:
     pet = Pet(**opts)
     pet.say("fica")
     pet.person.walk(TOUR)
-    start = np.array(pet.brain.pose()[:2])
+    start = np.array(pet.true_pose()[:2])
     errs = []
     pet.run(seconds, lambda p: errs.append(p.facing_error()))
+    pet.close()
     e = np.array(errs)
-    return dict(drift=float(np.linalg.norm(np.array(pet.brain.pose()[:2]) - start)),
+    return dict(drift=float(np.linalg.norm(np.array(pet.true_pose()[:2]) - start)),
                 facing_mean=float(e.mean()), facing_p90=float(np.percentile(e, 90)), falls=pet.falls,
                 bumps=pet.bumps)
 
@@ -424,37 +487,55 @@ def run_tests(**opts) -> int:
 
 
 def plot(out: Path, **opts) -> Path:
-    """Top view: the floor map, and the robot's and the person's tracks on 'siga' (the tour) and 'vem' (corridor)."""
+    """Top view: the robot's and the person's tracks on 'siga' (the tour) and 'vem' (corridor) over the real walls;
+    with the phone's perception, also the map the robot built from the LiDAR on 'siga' and where it thought it was."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    runs = []
+    runs, built = [], None
     for title, setup in (("siga: a pessoa faz a volta (sala, corredor, sala)", lambda p: (p.say("siga"),
                                                                                         p.person.walk(TOUR))),
                          ("vem: a pessoa chama do corredor", lambda p: (p.person.place(4.2, -1.25, math.pi),
                                                                         p.say("vem")))):
         pet = Pet(**opts)
         setup(pet)
-        robot, person = [], []
+        robot, person, guess = [], [], []
         pet.run(90.0 if "siga" in title else 25.0,
-                lambda p: (robot.append(p.brain.pose()[:2]), person.append(p.person.xy)))
-        runs.append((title, pet.brain.static, np.array(robot), np.array(person)))
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.6))
-    for ax, (title, fmap, robot, person) in zip(axes, runs):
+                lambda p: (robot.append(p.true_pose()[:2]), person.append(p.person.xy),
+                           guess.append(p.brain.pose()[:2])))
+        runs.append((title, pet.walls, np.array(robot), np.array(person)))
+        if built is None and isinstance(pet.perception, PhonePerception):
+            built = (pet.perception.floor(), np.array(guess))
+        pet.close()
+    fig, axes = plt.subplots(1, 3 if built else 2, figsize=(21 if built else 14, 4.6))
+
+    def floor(ax, fmap, unknown=False):
         x0, y0 = fmap.origin
         n, k = fmap.occupied.shape
-        ax.imshow(np.where(fmap.occupied, 0.25, np.where(fmap.clearance < 0.1, 0.8, 1.0)).T, origin="lower",
-                  cmap="gray", vmin=0, vmax=1, extent=(x0, x0 + n * fmap.res, y0, y0 + k * fmap.res))
+        img = np.where(fmap.occupied, 0.25, np.where(fmap.clearance < 0.1, 0.8, 1.0))
+        if unknown and fmap.unknown is not None:
+            img = np.where(fmap.unknown & ~fmap.occupied, 0.65, img)
+        ax.imshow(img.T, origin="lower", cmap="gray", vmin=0, vmax=1,
+                  extent=(x0, x0 + n * fmap.res, y0, y0 + k * fmap.res))
+        ax.set_aspect("equal")
+        ax.set_xlim(-1.7, 5.2)
+        ax.set_ylim(-1.95, 1.95)
+
+    for ax, (title, fmap, robot, person) in zip(axes, runs):
+        floor(ax, fmap)
         ax.plot(person[:, 0], person[:, 1], color="tab:orange", lw=2, label="pessoa")
         ax.plot(robot[:, 0], robot[:, 1], color="tab:blue", lw=2, label="Cogu")
         ax.plot(*robot[0], "o", color="tab:blue")
         ax.plot(*person[-1], "s", color="tab:orange")
         ax.set_title(title)
-        ax.set_aspect("equal")
-        ax.set_xlim(-1.7, 5.2)
-        ax.set_ylim(-1.95, 1.95)
         ax.legend(loc="upper right")
+    if built:
+        fmap, guess = built
+        floor(axes[2], fmap, unknown=True)
+        axes[2].plot(guess[:, 0], guess[:, 1], color="tab:blue", lw=2, label="onde o Cogu achou que estava")
+        axes[2].set_title("o mapa que ele montou no siga, só com o LiDAR e o ARKit (cinza: nunca visto)")
+        axes[2].legend(loc="upper right")
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=110)
@@ -480,6 +561,8 @@ def record(out: Path, seconds: float = 90.0, speedup: float = 2.0, **opts) -> Pa
             if i % every == 0:
                 renderer.update_scene(pet.d, cam)
                 w.append_data(renderer.render())
+    renderer.close()
+    pet.close()
     return out
 
 
@@ -518,7 +601,8 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                 pet.step()
             b, c = pet.brain, pet.brain.cmd
             v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls",
-                         f"{b.mode}\n{b.said}\nvx {c[0]:+.2f}  wz {c[2]:+.2f}\n{pet.distance():.2f} m\n{pet.falls}"))
+                         f"{b.mode}\n{b.said}\nvx {c[0]:+.2f}  wz {c[2]:+.2f}\n{pet.distance():.2f} m"
+                         f"{'' if b.person()[1] else ' (out of sight)'}\n{pet.falls}"))
             v.sync()
             sleep = pet.dt / speed - (time.perf_counter() - t0)
             if sleep > 0:
@@ -533,18 +617,25 @@ def main(argv=None) -> int:
     ap.add_argument("--delay", type=int, default=0, help="actuator latency, 20 ms steps (walk training: 0–2)")
     ap.add_argument("--person-speed", type=float, default=0.25, help="m/s (the robot walks up to 0.25)")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--plot", nargs="?", const=str(REPO_ROOT / "docs" / "renders" / "sim_pet_commands.png"),
-                    help="top view of the tracks on 'siga' and 'vem' (default docs/renders/sim_pet_commands.png)")
-    ap.add_argument("--video", nargs="?", const=str(REPO_ROOT / "docs" / "renders" / "sim_pet_siga.mp4"),
-                    help="video of 'siga' on the tour, 2x (default docs/renders/sim_pet_siga.mp4)")
+    ap.add_argument("--perception", choices=("phone", "true"), default="phone",
+                    help="phone: only the simulated LiDAR, ARKit and detectors; true: the true positions")
+    ap.add_argument("--plot", nargs="?", const="",
+                    help="top view of the tracks on 'siga' and 'vem' (default docs/renders/sim_pet_phone.png, "
+                         "sim_pet_commands.png with --perception true)")
+    ap.add_argument("--video", nargs="?", const="",
+                    help="video of 'siga' on the tour, 2x (default docs/renders/sim_pet_siga_phone.mp4, "
+                         "sim_pet_siga.mp4 with --perception true)")
     args = ap.parse_args(argv)
-    opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed)
+    opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed, perception=args.perception)
     if args.test:
         return run_tests(**opts)
-    if args.plot or args.video:
-        for out in filter(None, (args.plot and plot(Path(args.plot), **opts),
-                                 args.video and record(Path(args.video), **opts))):
-            print(out)
+    if args.plot is not None or args.video is not None:
+        renders, phone = REPO_ROOT / "docs" / "renders", args.perception == "phone"
+        if args.plot is not None:
+            print(plot(Path(args.plot or renders / ("sim_pet_phone.png" if phone else "sim_pet_commands.png")), **opts))
+        if args.video is not None:
+            print(record(Path(args.video or renders / ("sim_pet_siga_phone.mp4" if phone else "sim_pet_siga.mp4")),
+                         **opts))
         return 0
     return run_viewer(Pet(**opts), args.speed)
 

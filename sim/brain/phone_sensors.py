@@ -71,6 +71,7 @@ class Lidar:
         self._seg.update_scene(data, self.camera, self.scene_option)
         seg = self._seg.render()
         geom = np.where(seg[..., 1] == mujoco.mjtObj.mjOBJ_GEOM, seg[..., 0], -1)
+        self.geom = geom          # which geom each pixel sees (-1: none): what the detectors work from
 
         conf = np.full(depth.shape, 2, np.uint8)
         conf[depth > 0.6 * self.max_range] = 1
@@ -91,6 +92,12 @@ class Lidar:
         depth[invalid] = 0.0
         conf[invalid] = 0
         return depth, conf
+
+    def close(self):
+        """Free the renderers now (a second Lidar in the same process breaks if the first one's GL contexts are freed
+        while it renders)."""
+        self._depth.close()
+        self._seg.close()
 
     def points(self, depth: np.ndarray, pose: tuple[np.ndarray, np.ndarray], min_conf: int = 1,
                conf: np.ndarray | None = None) -> np.ndarray:
@@ -130,6 +137,7 @@ class ArkitPose:
         w = self.rng.normal(size=3) * self.noise_rot    # small-angle noise
         noise_rot = np.eye(3) + np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
         rot = noise_rot @ drift_rot @ data.cam_xmat[self.camera].reshape(3, 3)
+        self.now = (pos, rot)     # this frame's pose: ARKit hands it over with the frame's depth, `latency` later
         self.queue.append((data.time + self.latency, (pos, rot)))
         while self.queue and self.queue[0][0] <= data.time:
             self.pose = self.queue.popleft()[1]
