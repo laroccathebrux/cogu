@@ -65,8 +65,8 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
   (pernas dobradas para trás sob o corpo, canelas no chão, corpo em pé, torque zero) existe como pose parada, mas
   não achei ainda uma transição que chegue nela sem tombar para trás.
 - Sentar quase no chão, inclinado 44° para trás (bloco a ~2 cm): segura menos empurrões para a frente que o agachado
-  (15–17 de 20 até 0,4–0,6 m/s, contra 20/20). Alternativas: o agachado de antes, ou o chão de verdade com o quadril
-  indo até ~−145°.
+  (15–17 de 20 até 0,4–0,6 m/s, contra 20/20), e uma política treinada em volta do roteiro (pose v2) não mudou isso.
+  Alternativas: o agachado de antes, ou o chão de verdade com o quadril indo até ~−145°.
 - Qual LLM local e qual na nuvem: decidido medindo tempo até a primeira palavra e qualidade das respostas.
 - Bola: tamanho 5 (22 cm, ~430 g) é o pedido; no treino também 3 e 4. O Cogu tem ~40 cm de altura (câmera a 38,6 cm).
 

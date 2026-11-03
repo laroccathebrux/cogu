@@ -740,8 +740,23 @@ Escolha da profundidade (empurrões de até 0,5 m/s em direção sorteada, 40 te
 no de treino e 14/20 no completo; até 0,6 m/s, 16/20 e 17/20; no apartamento, igual ao de treino. O sentar agachado
 fazia 20/20 até 0,6 m/s. As falhas vêm de empurrões para a frente (±50°) de 0,3–0,4 m/s: o bloco desce os 2 cm, e ele
 fica sentado no chão (25–29°), de onde não levanta pelo caminho. Mandar levantar dali o faz tombar de frente (~10 cm), e
-o levantar v8 o põe de pé em ~11–12 s (6 de 10 dentro de 12 s). No `play.py`, a queda chama o levantar sozinha. Uma
-política em volta do roteiro (pose v2, `--env pose`) pode aprender a segurar esses empurrões.
+o levantar v8 o põe de pé em ~11–12 s (6 de 10 dentro de 12 s). No `play.py`, a queda chama o levantar sozinha.
+
+**Pose v2** (2026-11-03, Colab, T4, 30 M passos do zero, 53 min): a política em volta desse roteiro, com um custo novo
+para o bloco do quadril a menos de 1 cm do chão (`block_floor`, pela caixa de colisão; sentado ela fica a ~15 mm). A
+curva ficou plana de novo (0,24 → 0,23 quedas por episódio). Contra o roteiro sozinho, nos mesmos sorteios:
+
+| `pose_eval.py` | modelo de treino: v2 / roteiro | completo: v2 / roteiro |
+|---|---|---|
+| empurrão ≤ 0,4 m/s, 20 tentativas, semente 0 | 17 / 15 | 15 / 14 |
+| ≤ 0,6 m/s, 20, semente 0 | 17 / 16 | 17 / 17 |
+| ≤ 0,5 m/s, 40, semente 1 | 40 / 38 | 38 / 37 |
+
+Sempre igual ou um pouco melhor, mas dentro do ruído, e a falha não mudou: sentado, empurrado para a frente (0°, ±45°) a
+0,3–0,4 m/s, o bloco encosta no chão com a política e com o roteiro, nos mesmos casos (empurrões de 0,2–0,5 m/s em 8
+direções, modelo do treino); a política só senta ~2 mm mais alto (bloco a 16 mm em vez de 14). Como no v1, segurar esse
+empurrão pede outra pose, não uma correção em volta dela. **O sentar continua roteiro**; o checkpoint fica fora do
+repositório (`cogu_pose_v2.zip`).
 
 Nada mais muda com as faixas novas: a marcha v10 segura os mesmos 38 de 40 empurrões (`push_recovery.py`). O levantar
 v8 sobe de 79/100 quedas no modelo de treino e 30/100 no completo em 10 s (`getup_eval.py --starts drop --trials 100`),
@@ -791,7 +806,8 @@ resolveram sem rede. O checkpoint não foi guardado.
 
 **Decisão: o sentar e o deitar ficam como roteiro**, sem rede neural. Ele já aguenta mais que a marcha e, na medula, é
 mais barato que uma rede: são poucas contas por passo no ESP32. O ambiente e o `--env pose` ficam para quando o servo real
-for medido. Se o roteiro piorar com o modelo do servo medido, treina-se a correção (pose v2) a partir dele.
+for medido. Se o roteiro piorar com o modelo do servo medido, treina-se de novo a correção a partir dele (o pose v2, do
+sentar quase no chão, também empatou com o roteiro: acima).
 
 ```bash
 uv run python sim/playground/pose_eval.py script --xml build/mjcf/cogu_lower_body.xml   # o roteiro sozinho, modelo completo
