@@ -20,6 +20,8 @@ e regenere com `uv run python -m cad.export`.
 | `colab_train.ipynb` | Treino em GPU NVIDIA no Google Colab: gera o modelo do CAD, treina, testa sim2sim, grava vídeo e devolve um zip com o checkpoint |
 | `play.py` | Roda a política no **viewer do MuJoCo**, comandada pelo teclado, no MuJoCo normal (sim2sim). `--follow` acompanha um treino em andamento |
 | `command_tracking.py` | Quanto a política segue cada comando (frente, trás, lado, giro, parado): velocidade atingida e, parado, tempo com pé no ar |
+| `cogu_pose.py` | Env `CoguPose`: sentar e deitar sob comando, corrigindo um roteiro (seção "Sentar e deitar") |
+| `pose_eval.py` | Sim2sim do sentar / levantar / deitar com empurrões, atrito, servo e atraso sorteados; `script` = o roteiro sozinho |
 | `check_env.py` | Smoke test do env (CI): fica em pé 2 s, observações finitas, randomizer em lote |
 | `jax_compat.py` | Shim: Brax 0.14.2 ainda chama `jax.device_put_replicated`, removido do namespace público no jax 0.10 |
 
@@ -630,6 +632,68 @@ Sim2sim no modelo do CAD, 8 s a partir do repouso:
 
 A v10 é a marcha atual: igual à v9 com `--latch`, um pouco mais rápida, escorrega metade, e o detector com que ela
 treinou é o que ela usa. Andar de lado continua fraco.
+
+## Sentar e deitar (2026-11-02)
+
+Para os comandos "sente" e "deita" do bichinho (ADR-004), uma terceira política, `cogu_pose.py`, ao lado de andar e
+levantar. Como no levantar, ela corrige um roteiro que já funciona sozinho.
+
+**Sentar.** A ideia inicial era descer até a bolha encostar no chão, com o corpo em pé. Não dá: com a pelve em pé, as
+coxas e os links do quadril batem no chão com a pelve a ~100 mm, e a bolha ainda está acima (mapa estático de
+`getup_static.py` até 45° de inclinação: nenhuma pose com bolha e pés juntos). O que funciona é agachar sobre os pés
+inclinando para trás. Com as solas no chão, a inclinação da pelve é `−(quadril + joelho + tornozelo)`, e o centro de
+massa precisa ficar sobre a sola (130 mm). Descendo reto, ele sai pela ponta e o robô cai para a frente (pelve a
+~172 mm). Inclinando para trás junto, cabe até o fim:
+
+| joelho 90°, quadril −120° | inclinação 0° | 10° | 20° | 30° |
+|---|---|---|---|---|
+| centro de massa à frente do meio da sola | +78 mm (cai) | +59 mm (na borda) | **+38 mm** | +16 mm |
+| pelve | 129 mm | 144 mm | **156 mm** | 163 mm |
+
+O roteiro vai de `rest` a quadril −120°, joelho 90° e 20° de inclinação em 2 s (perfil em cosseno), com o
+tornozelo mantendo a sola no chão. Ele senta com a pelve a 154 mm, inclinado 18° para trás (olhando para cima, como
+um pet sentado), segurando com 0,25 N·m, e levanta pelo mesmo caminho.
+
+**Deitar.** De costas, pelo caminho da pegada do levantar tocado ao contrário: a cada passo a inclinação (do IMU)
+escolhe a pose do caminho 10° mais deitada, alcançada a 1 rad/s. Toda pose desse caminho se segura sozinha, então ele
+deita em ~2 s, sem passar de 0,1 m/s, em pé ou sentado. Para levantar, o levantar v8. A pose "chocando" (pernas dobradas
+para trás sob o corpo, canelas no chão, corpo em pé, torque zero) existe parada, mas indo do sentado para ela o robô
+tomba para trás (todas as variantes testadas).
+
+**O roteiro sozinho**, `pose_eval.py script`: em pé → senta (segura 3 s) → levanta até ficar pronto para a marcha →
+senta → deita. Atrito 0,6–1,2, servo 85–100 % e atraso de 0–40 ms sorteados, um empurrão em cada pausa; tentativas
+que completam o ciclo inteiro:
+
+| empurrão até | modelo do treino | modelo completo |
+|---|---|---|
+| 0,25 m/s | 20/20 | 20/20 |
+| 0,4 m/s | 16/20 | 15/20 |
+| 0,6 m/s | 12/20 | 12/20 |
+
+(Quem cai, cai sentado: os empurrões fortes derrubam na pausa sentada; os que sentam inteiros levantam e deitam
+sempre.)
+
+O ciclo inteiro com as outras políticas (`play.py`: marcha v10 → senta → levanta → anda → senta → deita → levantar v8 →
+anda) funciona no modelo do treino, no completo e no apartamento (`sim/brain/apartment.py`).
+
+**A política** (`--env pose`): ambiente de 12 s, o comando (em pé / sentado / deitado) muda a cada 1,5–4 s e `lie` é
+final; começa em pé ou sentado, empurrões de até 0,5 m/s em pé ou sentado. A ação corrige o roteiro (× 0,5 rad), com o
+mesmo filtro e atraso da marcha. Recompensas: juntas perto do roteiro, inclinação e altura da pelve esperadas (deitado:
+de costas, 112°), parado (velocidade da pelve), pés sem escorregar, e a correção pequena. Cai (mais de 40° fora da
+inclinação esperada, em pé ou sentado): fim do episódio. Observação (51): IMU, juntas, última ação, comando, roteiro,
+quanto já sentou e se está deitando.
+
+```bash
+uv run python sim/playground/pose_eval.py script --xml build/mjcf/variants/full_hip_-120.xml   # o roteiro sozinho
+uv run python sim/playground/train.py --env pose --steps 30000000 --num-envs 4096 ...             # Colab: ENV = "pose"
+uv run mjpython sim/playground/play.py --checkpoint sim/playground/checkpoints/cogu_walk_v10 \
+    --getup sim/playground/checkpoints/cogu_getup_v8 --pose script --xml build/mjcf/variants/hip_-120.xml
+```
+
+No viewer: **S** senta e levanta do sentado, **L** deita, **G** levanta de deitado (com `--getup`). `--pose script`
+toca o roteiro sozinho; com um checkpoint, a política.
+
+![em pé, sentado, deitado](../../docs/renders/sim_sit_lie.png)
 
 ## Resultado v5 — servo realista, ficar parado, giro simétrico (2026-10-30)
 

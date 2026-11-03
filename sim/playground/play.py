@@ -18,6 +18,8 @@ Keys (in the viewer window):
     End          stop (zero command)
     Home         reset the robot to the rest pose
     , / .        previous / next checkpoint of the same training run (the policy at each evaluation)
+    S            sit down / stand up from sitting (with --pose)
+    L            lie down on the back (with --pose); G gets up again (with --getup)
     double-click a body to select it, then Ctrl + right-drag: push it (Ctrl + left-drag: twist it)
 
 The env config each checkpoint was trained with (action filter, scales) is read from the
@@ -49,6 +51,7 @@ import numpy as np  # noqa: E402
 
 import cogu_env  # noqa: E402
 import cogu_getup  # noqa: E402
+import cogu_pose  # noqa: E402
 import getup_starts  # noqa: E402
 from rollout import latest_checkpoint, load_policy  # noqa: E402
 
@@ -58,6 +61,7 @@ REPO_ROOT = HERE.parents[1]
 KEY_RIGHT, KEY_LEFT, KEY_DOWN, KEY_UP = 262, 263, 264, 265
 KEY_PAGE_UP, KEY_PAGE_DOWN, KEY_HOME, KEY_END = 266, 267, 268, 269
 KEY_COMMA, KEY_PERIOD = 44, 46
+KEY_G, KEY_L, KEY_S = 71, 76, 83
 
 
 class Sim2Sim:
@@ -73,9 +77,11 @@ class Sim2Sim:
         self.dt = cfg.ctrl_dt
         self.n_substeps = int(round(cfg.ctrl_dt / cfg.sim_dt))
         key = self.m.keyframe("rest")
+        # the robot comes first (its free joint, then its joints); a scene may add bodies after it (a ball, ...)
+        self.qj, self.vj = slice(7, 7 + self.m.nu), slice(6, 6 + self.m.nu)
         self.init_q = np.array(key.qpos)
-        self.default_pose = np.array(key.qpos[7:])
-        self.lowers, self.uppers = self.m.jnt_range[1:].T
+        self.default_pose = np.array(key.qpos[self.qj])
+        self.lowers, self.uppers = self.m.jnt_range[1:1 + self.m.nu].T
         self.imu = self.m.site("imu").id
         self.gyro_adr = self.m.sensor_adr[self.m.sensor("gyro").id]
         self.phase_dt = 2 * np.pi * self.dt * gait_freq
@@ -114,8 +120,8 @@ class Sim2Sim:
         s = self.cfg.noise_config.scales
         gyro = self.d.sensordata[self.gyro_adr:self.gyro_adr + 3].copy()
         gravity = self.d.site_xmat[self.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
-        q = self.d.qpos[7:].copy()
-        qd = self.d.qvel[6:].copy()
+        q = self.d.qpos[self.qj].copy()
+        qd = self.d.qvel[self.vj].copy()
         phase = np.concatenate([np.cos(self.phase), np.sin(self.phase)])
         return np.concatenate([self._noisy(gyro, s.gyro), self._noisy(gravity, s.gravity), self.command,
                                self._noisy(q, s.joint_pos) - self.default_pose, self._noisy(qd, s.joint_vel),
@@ -166,7 +172,7 @@ class Sim2Sim:
     def handover(self):
         """Take over a robot that is already standing (from the get-up policy): keep the physics, restart the
         policy state so the first target is where the joints are now (no jump)."""
-        q = self.d.qpos[7:].copy()
+        q = self.d.qpos[self.qj].copy()
         self.last_act = np.zeros(self.m.nu)
         self.filtered = (q - self.default_pose) / self.cfg.action_scale
         self.phase = np.array([0.0, np.pi])
@@ -242,7 +248,7 @@ class GetupPolicy:
 
     def start(self, throw_t: float = -1.0, throw_side: int = 0):
         """`throw_t` >= 0: the reference is that far into throw `throw_side` (a getup_starts `throw` state)."""
-        q = self.sim.d.qpos[7:].copy()
+        q = self.sim.d.qpos[self.sim.qj].copy()
         self.ref = q.copy()
         if self.roll and throw_t >= 0.0:                 # the table counts time into the roll; the env relax + roll
             throw_t += self.cfg.reference.relax_time
@@ -265,7 +271,7 @@ class GetupPolicy:
             throwing = self.throw_t >= 0.0
             total = max(self.roll_ends[self.throw_side, -1] + self.cfg.reference.relax_time, 1e-3)
             ref.append([float(throwing), self.throw_t / total if throwing else 0.0])
-        return np.concatenate([gyro, gravity, d.qpos[7:] - s.default_pose, d.qvel[6:], self.last_act, *ref]
+        return np.concatenate([gyro, gravity, d.qpos[s.qj] - s.default_pose, d.qvel[s.vj], self.last_act, *ref]
                               ).astype(np.float32)
 
     def _reference_step(self):
@@ -349,12 +355,119 @@ class GetupPolicy:
         self.last_act = action
         # ready to walk: upright, at height, near `rest`, slow — for 0.5 s in a row
         up = s.d.site_xmat[s.imu].reshape(3, 3)[2, 2]
-        rested = np.sum(np.square(s.d.qpos[7:] - s.default_pose)) < 0.05
-        slow = np.linalg.norm(s.d.qvel[:3]) < 0.1 and np.linalg.norm(s.d.qvel[6:]) < 1.5
+        rested = np.sum(np.square(s.d.qpos[s.qj] - s.default_pose)) < 0.05
+        slow = np.linalg.norm(s.d.qvel[:3]) < 0.1 and np.linalg.norm(s.d.qvel[s.vj]) < 1.5
         self.calm = self.calm + s.dt if (up > 0.95 and s.d.qpos[2] > 0.18 and rested and slow) else 0.0
 
     def ready(self) -> bool:
         return self.calm >= 0.5
+
+
+def pose_config(ckpt: Path | None):
+    """The sit / lie env config a checkpoint was trained with (no checkpoint: the defaults, catch path from the
+    model the env trains on)."""
+    cfg = cogu_pose.default_config()
+    for d in ((ckpt, ckpt.parent) if ckpt is not None else ()):
+        f = d / cogu_env.ENV_CONFIG_FILE
+        if f.exists():
+            cfg.update(json.loads(f.read_text()))
+            break
+    if not cfg.lie.tilts:
+        table = np.load(getup_starts.default_path(cogu_pose.POSE_XML))
+        cfg.lie.tilts, cfg.lie.legs = table["catch_tilt"].tolist(), table["catch_q"].tolist()
+    return cfg
+
+
+class PosePolicy:
+    """The sit / lie-down policy (cogu_pose) driving the same MjData as a Sim2Sim walker: sim2sim of CoguPose.
+    `ckpt` None: the scripted reference alone (zero correction)."""
+
+    def __init__(self, sim: Sim2Sim, ckpt: Path | None, seed: int = 2):
+        self.sim, self.ckpt = sim, ckpt
+        self.cfg = pose_config(ckpt)
+        self.policy = jax.jit(load_policy(ckpt)) if ckpt is not None else None
+        self.key = jax.random.PRNGKey(seed)
+        self.lie_tilts = np.array(self.cfg.lie.tilts, float)
+        self.lie_legs = np.radians(np.array(self.cfg.lie.legs, float))
+        self.mode, self.sit, self.lying = 0, 0.0, False
+
+    def legs(self, hip, knee, ankle) -> np.ndarray:
+        leg = np.array([0.0, 0.0, hip, knee, ankle])
+        return np.concatenate([leg, leg])
+
+    def tilt(self) -> float:
+        s = self.sim
+        g = s.d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
+        return float(np.degrees(np.arccos(np.clip(-g[2], -1.0, 1.0))) * (1.0 if g[0] <= 0.0 else -1.0))
+
+    def start(self, mode: int, sit: float = 0.0):
+        """Take over from where the joints are: `sit` 0 standing in `rest`, 1 sitting."""
+        s = self.sim
+        q = s.d.qpos[s.qj].copy()
+        self.mode, self.sit, self.lying = mode, sit, False
+        self.ref = q.copy()
+        self.filtered = np.zeros(s.m.nu)
+        self.last_act = np.zeros(s.m.nu)
+        self.history = [q.copy() for _ in range(s.delay + 1)]
+        self.calm = 0.0
+
+    def _reference_step(self):
+        cfg, dt = self.cfg, self.sim.dt
+        self.lying = self.lying or self.mode == 2
+        if self.lying:
+            want = min(self.tilt() + cfg.lie.lead, cfg.lie.end)
+            goal = self.legs(*(np.interp(want, self.lie_tilts, self.lie_legs[:, j]) for j in range(3)))
+            step = cfg.lie.rate * dt
+            self.ref = self.ref + np.clip(goal - self.ref, -step, step)
+        else:
+            self.sit = float(np.clip(self.sit + (1.0 if self.mode == 1 else -1.0) * dt / cfg.sit.time, 0.0, 1.0))
+            c = float(cogu_pose.ease(self.sit))
+            self.ref = self.legs(*(float(x) for x in cogu_pose.sit_legs(c, cfg)))
+
+    def _obs(self) -> np.ndarray:
+        s, d = self.sim, self.sim.d
+        gyro = d.sensordata[s.gyro_adr:s.gyro_adr + 3].copy()
+        gravity = d.site_xmat[s.imu].reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
+        return np.concatenate([gyro, gravity, d.qpos[s.qj] - s.default_pose, d.qvel[s.vj], self.last_act,
+                               np.eye(3)[self.mode], self.ref - s.default_pose, [self.sit, float(self.lying)]]
+                              ).astype(np.float32)
+
+    def step(self):
+        s = self.sim
+        self._reference_step()
+        if self.policy is not None:
+            self.key, k = jax.random.split(self.key)
+            obs = self._obs()
+            action, _ = self.policy({"state": jp.asarray(obs), "privileged_state": jp.zeros(obs.size + 17)}, k)
+            action = np.clip(np.asarray(action), -1.0, 1.0)
+        else:
+            action = np.zeros(s.m.nu)
+        a = self.cfg.action_filter_alpha
+        self.filtered = a * action + (1.0 - a) * self.filtered
+        target = np.clip(self.ref + self.filtered * self.cfg.residual_scale, s.lowers, s.uppers)
+        self.history = [target] + self.history[:-1]
+        s.d.ctrl[:] = self.history[s.delay]
+        for _ in range(s.n_substeps):
+            mujoco.mj_step(s.m, s.d)
+        self.last_act = action
+        slow = np.linalg.norm(s.d.qvel[:3]) < 0.1 and np.linalg.norm(s.d.qvel[s.vj]) < 1.5
+        self.calm = self.calm + s.dt if (not self.lying and self.sit == 0.0 and slow) else 0.0
+
+    def fallen(self) -> bool:
+        """Standing or sitting, leaning far from what the reference expects."""
+        expected = self.cfg.sit.pelvis_tilt * float(cogu_pose.ease(self.sit))
+        return not self.lying and abs(self.tilt() - expected) > self.cfg.reward_config.fall_tilt
+
+    def ready(self) -> bool:
+        """Back standing in `rest`, still: the walker can take over."""
+        return self.mode == 0 and self.calm >= 0.5
+
+    def state(self) -> str:
+        if self.lying:
+            return "lying down" if self.tilt() < 90.0 else "lying"
+        if self.mode == 1:
+            return "sitting" if self.sit >= 1.0 else "sitting down"
+        return "standing up"
 
 
 def run_checkpoints(ckpt: Path) -> list[Path]:
@@ -386,11 +499,12 @@ def run_headless(sim: Sim2Sim, seconds: float) -> int:
     return 0
 
 
-def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: GetupPolicy | None = None) -> int:
+def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: GetupPolicy | None = None,
+               pose: PosePolicy | None = None) -> int:
     import mujoco.viewer
 
     lims = sim.cfg
-    pending = {"reset": False, "browse": 0}
+    pending = {"reset": False, "browse": 0, "pose": None, "getup": False}
 
     def on_key(key: int):
         c = sim.command
@@ -414,6 +528,12 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: Ge
             pending["browse"] = -1
         elif key == KEY_PERIOD:
             pending["browse"] = +1
+        elif key == KEY_S and pose is not None:
+            pending["pose"] = "sit"
+        elif key == KEY_L and pose is not None:
+            pending["pose"] = "lie"
+        elif key == KEY_G and getup is not None:
+            pending["getup"] = True
         c[:] = np.round(c, 3)
 
     print(__doc__.split("Keys (in the viewer window):")[1].split("This is")[0])
@@ -470,7 +590,32 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: Ge
                 # mouse pushes: the passive viewer only records them; the physics loop applies them
                 sim.d.xfrc_applied[:] = 0.0
                 mujoco.mjv_applyPerturbForce(sim.m, sim.d, v.perturb)
-                if mode == "getting up":
+                if pending["pose"]:                     # S: sit down / stand up; L: lie down
+                    if mode == "walking":
+                        sim.command[:] = 0.0
+                        pose.start(2 if pending["pose"] == "lie" else 1)
+                        mode = "pose"
+                    elif mode == "pose" and not pose.lying:
+                        pose.mode = 2 if pending["pose"] == "lie" else (0 if pose.mode == 1 else 1)
+                    pending["pose"] = None
+                if pending["getup"] and mode == "pose" and pose.lying:   # G: get up from lying
+                    getup.start()
+                    mode = "getting up"
+                pending["getup"] = False
+                if mode == "pose":
+                    pose.step()
+                    if pose.ready():                    # back in `rest`: the walker takes over
+                        sim.handover()
+                        mode = "walking"
+                    elif pose.fallen():
+                        falls += 1
+                        if getup is not None:
+                            getup.start()
+                            mode = "getting up"
+                        else:
+                            sim.reset()
+                            mode = "walking"
+                elif mode == "getting up":
                     getup.step()
                     if getup.ready():                   # standing in `rest`: the walker takes over
                         sim.handover()
@@ -488,7 +633,7 @@ def run_viewer(sim: Sim2Sim, speed: float, follow: Path | None = None, getup: Ge
             v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT,
                          "command\nspeed\nfalls\npolicy\nmode",
                          f"vx {vx:+.2f}  vy {vy:+.2f}  wz {wz:+.1f}\n{sim.forward_speed():+.2f} m/s\n{falls}\n"
-                         f"{checkpoint_label(sim.ckpt)}\n{mode}"))
+                         f"{checkpoint_label(sim.ckpt)}\n{pose.state() if mode == 'pose' else mode}"))
             v.sync()
             sleep = sim.dt / speed - (time.perf_counter() - t0)
             if sleep > 0:
@@ -508,6 +653,8 @@ def parse_args(argv=None):
     ap.add_argument("--rolls", default=None, metavar="DIR",
                     help="get-up: play DIR's roll_front.json / roll_side.json instead of the checkpoint's (v7 on; "
                          "e.g. sim/playground/getup_sequences after roll_search.py)")
+    ap.add_argument("--pose", default=None, metavar="CKPT",
+                    help="sit / lie-down policy (S / L keys); 'script' plays the scripted reference alone")
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--seconds", type=float, default=8.0)
     ap.add_argument("--vx", type=float, default=0.0)
@@ -555,9 +702,12 @@ def main(argv=None) -> int:
         rc.latch, rc.hold, rc.cooldown = True, new.hold, new.cooldown
     sim.command[:] = (args.vx, args.vy, args.wz)
     getup = GetupPolicy(sim, latest_checkpoint(Path(args.getup).resolve()), rolls=args.rolls) if args.getup else None
+    pose = None
+    if args.pose:
+        pose = PosePolicy(sim, None if args.pose == "script" else latest_checkpoint(Path(args.pose).resolve()))
     if args.headless:
         return run_headless(sim, args.seconds)
-    return run_viewer(sim, args.speed, follow, getup)
+    return run_viewer(sim, args.speed, follow, getup, pose)
 
 
 if __name__ == "__main__":

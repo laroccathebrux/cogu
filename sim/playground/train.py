@@ -45,6 +45,7 @@ from mujoco_playground import wrapper  # noqa: E402
 
 import cogu_env  # noqa: E402
 import cogu_getup  # noqa: E402
+import cogu_pose  # noqa: E402
 from randomize import make_domain_randomizer  # noqa: E402
 from rollout import latest_checkpoint  # noqa: E402
 
@@ -53,7 +54,7 @@ REPO_ROOT = HERE.parents[1]
 
 def network_factory(policy_hidden=(128, 128, 128), value_hidden=(256, 256, 256), env: str = "walk"):
     extra = {}
-    if env == "getup":
+    if env in ("getup", "pose"):
         # start from "stand still": the policy's mean output starts ~0 (zero action = the rest pose) and the
         # exploration noise small. Zero action plus noise, standing, 6 s: std 0.05 -> 100 % still up, 0.1 -> 84 %,
         # 0.15 -> 3 %, 0.3 -> 0 %. brax's default "tanh_normal" policy ignores init_noise_std and the mean init (a
@@ -80,12 +81,13 @@ def parse_args(argv=None):
     ap.add_argument("--num-envs", type=int, default=1024)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=str(REPO_ROOT / "build" / "checkpoints" / "cogu_walk"))
-    ap.add_argument("--env", choices=["walk", "getup"], default="walk",
-                    help="walk: velocity tracking (cogu_env); getup: stand up from a fall (cogu_getup)")
+    ap.add_argument("--env", choices=["walk", "getup", "pose"], default="walk",
+                    help="walk: velocity tracking (cogu_env); getup: stand up from a fall (cogu_getup); "
+                         "pose: sit and lie down on command (cogu_pose)")
     ap.add_argument("--xml", default=None, help="default: the MJX model of the chosen env")
     ap.add_argument("--num-evals", type=int, default=4)
     ap.add_argument("--episode-length", type=int, default=None,
-                    help="steps; default: the env config's (walk 500 = 10 s, getup 750 = 15 s)")
+                    help="steps; default: the env config's (walk 500 = 10 s, getup 750 = 15 s, pose 600 = 12 s)")
     ap.add_argument("--unroll-length", type=int, default=20)
     ap.add_argument("--batch-size", type=int, default=256)
     ap.add_argument("--num-minibatches", type=int, default=4)
@@ -115,9 +117,9 @@ def main(argv=None) -> int:
     assert args.num_envs % args.devices == 0, "num_envs must be a multiple of --devices"
 
     if args.discounting is None:
-        args.discounting = 0.99 if args.env == "getup" else 0.97
+        args.discounting = 0.99 if args.env in ("getup", "pose") else 0.97
     if args.entropy_cost is None:
-        args.entropy_cost = 1e-4 if args.env == "getup" else 5e-3
+        args.entropy_cost = 1e-4 if args.env in ("getup", "pose") else 5e-3
     print(f"jax backend: {jax.default_backend()} devices: {jax.devices()}")
     if args.env == "getup":
         env_cfg = cogu_getup.default_config()
@@ -128,6 +130,13 @@ def main(argv=None) -> int:
         env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
         cogu_getup.save_config(env_cfg, out)
         eval_env = cogu_getup.CoguGetup(xml_path=xml, config=env_cfg)
+    elif args.env == "pose":
+        env_cfg = cogu_pose.default_config()
+        env_cfg.episode_length = args.episode_length or env_cfg.episode_length
+        xml = args.xml or str(cogu_pose.POSE_XML)
+        env = cogu_pose.CoguPose(xml_path=xml, config=env_cfg)
+        cogu_pose.save_config(env_cfg, out)          # after the env filled in the catch path
+        eval_env = cogu_pose.CoguPose(xml_path=xml, config=env_cfg)
     else:
         env_cfg = cogu_env.default_config()
         env_cfg.episode_length = args.episode_length or env_cfg.episode_length
@@ -159,6 +168,14 @@ def main(argv=None) -> int:
                 if n > 0:
                     kinds.append(f"{name} {100 * metrics[f'eval/episode_upright_{name}'] / n:3.0f}")
             tail = f"upright {100 * upright:5.1f} % of the time ({' '.join(kinds)})"
+        elif args.env == "pose":
+            kinds = []
+            for name in cogu_pose.MODES:           # share of the time asked for a pose that it is in it
+                n = metrics.get(f"eval/episode_in_{name}", 0.0)
+                if n > 0:
+                    kinds.append(f"{name} {100 * metrics[f'eval/episode_ok_{name}'] / n:3.0f}")
+            fell = metrics.get("eval/episode_fell", float("nan"))
+            tail = f"in the asked pose % ({' '.join(kinds)})  falls/episode {fell:.2f}"
         else:
             speed = metrics.get("eval/episode_forward_speed", float("nan")) / max(length, 1.0)
             tail = f"mean fwd speed {speed:+.3f} m/s"
@@ -191,7 +208,7 @@ def main(argv=None) -> int:
         progress_fn=progress,
         # get-up: evaluate the policy's mean action. brax's default samples it, and with the exploration noise the
         # eval robots fell over — the printed "upright" was ~1 % while the deterministic policy stood ~25 %
-        deterministic_eval=(args.env == "getup"),
+        deterministic_eval=(args.env in ("getup", "pose")),
         save_checkpoint_path=str(out),
         restore_checkpoint_path=str(latest_checkpoint(Path(args.restore).resolve())) if args.restore else None,
     )
