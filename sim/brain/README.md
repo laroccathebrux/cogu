@@ -300,11 +300,17 @@ No viewer o modelo pensa numa thread separada, e o robô continua andando enquan
 - **Voz** (`--voz`): eleven_flash_v2_5 (~0,1 s, fala português) → alto-falante (afplay), em ordem, numa thread. Fala
   tudo o que o Cogu diz, inclusive o que vem da autonomia ("achei você").
 
-O ouvido e a voz servem para qualquer cérebro, inclusive o modelo local. A chave vem só do ambiente
-(`ELEVENLABS_API_KEY`); `build/elevenlabs/agent.json` guarda os ids do agente e das ferramentas, sem a chave.
+O ouvido e a voz servem para qualquer cérebro, inclusive o modelo local. A chave vem de `ELEVENLABS_API_KEY` ou,
+se ela não estiver definida, do arquivo `~/.config/cogu/elevenlabs_key`, fora do repositório, que qualquer terminal
+acha. Para gravá-lo sem a chave aparecer na tela nem no histórico, num terminal interativo (zsh):
 
 ```bash
-export ELEVENLABS_API_KEY=...                                       # a sua chave, no seu terminal
+mkdir -p ~/.config/cogu && read -rs "k?Chave da ElevenLabs: " && print -r -- "$k" > ~/.config/cogu/elevenlabs_key && chmod 600 ~/.config/cogu/elevenlabs_key && unset k && echo ok
+```
+
+`build/elevenlabs/agent.json` guarda os ids do agente e das ferramentas, sem a chave.
+
+```bash
 uv run python sim/brain/eleven.py --voices                          # as vozes da conta
 uv run python sim/brain/eleven.py --setup --voice <id>              # cria ou atualiza o agente
 uv run python sim/brain/eleven.py --say "Oi, eu sou o Cogu!"        # ouvir a voz

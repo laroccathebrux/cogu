@@ -1,6 +1,6 @@
 """ElevenLabs around the Cogu's conversation (ADR-004, item 4): the cloud brain, the ears and the voice.
 
-    export ELEVENLABS_API_KEY=...       # your key: you set it in your own shell (nothing here writes it anywhere)
+    export ELEVENLABS_API_KEY=...       # your key (or in ~/.config/cogu/elevenlabs_key); nothing here writes it
     uv run python sim/brain/eleven.py --voices                     # the voices of your account (pick one)
     uv run python sim/brain/eleven.py --setup [--voice ID] [--llm claude-haiku-5-5]   # create / update the agent
     uv run python sim/brain/eleven.py --say "Oi, eu sou o Cogu!"   # hear the voice
@@ -67,11 +67,17 @@ class NoKey(RuntimeError):
     pass
 
 
+KEY_FILE = Path.home() / ".config" / "cogu" / "elevenlabs_key"   # outside the repo; written by you (README)
+
+
 def key() -> str:
+    """ELEVENLABS_API_KEY, or else the file KEY_FILE (so every shell finds it). Never printed."""
     k = os.environ.get("ELEVENLABS_API_KEY")
+    if not k and KEY_FILE.exists():
+        k = KEY_FILE.read_text().strip()
     if not k:
-        raise NoKey("ELEVENLABS_API_KEY não está definida: crie uma chave em elevenlabs.io (Developers > API Keys) "
-                    "e rode export ELEVENLABS_API_KEY=... no seu terminal")
+        raise NoKey(f"sem chave da ElevenLabs: defina ELEVENLABS_API_KEY ou grave a chave em {KEY_FILE} "
+                    "(sim/brain/README.md, seção ElevenLabs)")
     return k
 
 
