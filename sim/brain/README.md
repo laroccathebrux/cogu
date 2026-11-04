@@ -13,6 +13,9 @@ MuJoCo, antes do app em Swift. Tudo que o celular vai ver sai da câmera `phone_
 | `memory.py` | A memória do mundo: o que está onde, quando foi visto, para que serve; lugares com nome; o resumo em texto |
 | `behavior.py` | O motor de comportamento: as ferramentas que a conversa vai chamar, os comandos falados e o que ele faz sozinho |
 | `conversation.py` | A conversa: frases fixas sem LLM; o resto vai a um modelo de linguagem com as ferramentas e o resumo da memória |
+| `eleven.py` | A ElevenLabs: o agente (modelo na nuvem), o ouvido (Scribe) e a voz, com as frases fixas gravadas |
+| `protocol.py` | Os pacotes entre o celular e a medula (ADR-005): COMANDO e TELEMETRIA, binários, ≤ 20 bytes, com CRC |
+| `medula.py` | A medula (o que o firmware do ESP32 vai fazer: marcha, posturas, quedas, watchdog, bateria) e um rádio falso |
 
 ## Apartamento
 
@@ -384,6 +387,34 @@ Revisável:
 - o fim de uma resposta do agente é detectado por 0,8 s sem mensagens depois da última resposta (e esperando a
   resposta que vem depois de cada ferramenta).
 
+## O celular e a medula: o protocolo (ADR-005)
+
+O celular (percepção, cérebro, comportamento, conversa) e a medula (a placa Waveshare com ESP32, que anda, senta,
+deita e levanta) só se falam por dois pacotes binários de até 20 bytes, que cabem numa mensagem BLE sem negociar
+MTU. O formato, campo a campo, está no ADR-005 e em `protocol.py`.
+
+- **COMANDO** (celular → medula, 14 bytes, 10 vezes por segundo): velocidade (vx, vy, ωz), a postura pedida com um
+  id de pedido, a flag PARE. Cada comando traz o estado inteiro: um pacote perdido só atrasa 100 ms.
+- **TELEMETRIA** (medula → celular, 20 bytes, 10 vezes por segundo): o estado (andando, sentando, sentado, deitando,
+  deitado, levantando), o último comando aceito, a bateria, a inclinação, o que a marcha está fazendo e as quedas.
+
+`medula.py` é o que o firmware vai fazer, já em Python: rampa e limites da velocidade, watchdog (0,3 s sem comando:
+fica parada), uma transição por pedido de postura, levanta sozinha depois de uma queda, bateria baixa avisa e, no
+corte, senta. O `pet.py` agora passa tudo por ela e por um rádio falso (`--link ideal|ble|ruim`), com atraso,
+variação, perda, bytes corrompidos e quedas da ligação de 1 s.
+
+```bash
+uv run python sim/brain/protocol.py                 # confere o formato e imprime os pacotes de exemplo em hex
+uv run python sim/brain/medula.py --test            # o rádio e a medula sozinha: watchdog, pedidos repetidos, bateria
+uv run python sim/brain/pet.py --test --link ruim   # os cenários de antes num rádio ruim
+uv run mjpython sim/brain/conversation.py --brain elevenlabs --voz --link ble   # conversar com o rádio no meio
+```
+
+No rádio ruim (80 ± 60 ms, 10 % de perda, 1 s sem ligação a cada 20 s), em todos os cenários: nenhuma queda,
+nenhum toque em móvel, "pare" parado em 0,30 s, as posturas no máximo 2 s mais lentas. Os números estão no ADR-005.
+Revisável: as correntes da bateria e os limites de tensão são chutes; 0,3 s de watchdog e 10 Hz esperam a medição
+do BLE real.
+
 ## Próximos passos
 
 1. ~~Navegação e comandos com percepção perfeita (posição verdadeira da pessoa e da bola): siga, pare, vem, fica.~~
@@ -391,5 +422,9 @@ Revisável:
 2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
 3. ~~Memória do mundo e motor de comportamento.~~ Feito (acima).
 4. ~~Conversa por cima, chamando as mesmas ferramentas.~~ O laço está feito (acima), com um modelo local do Ollama.
-   A ElevenLabs (agente, ouvido e voz) está ligada e medida com a conta (acima). Falta conversar por voz de verdade
-   no viewer e o modelo da Apple (quando o Apple Intelligence terminar de baixar).
+   A ElevenLabs (agente, ouvido e voz) está ligada e medida com a conta (acima), e a conversa por voz no viewer
+   funcionou com o microfone de verdade (HyperX, `COGU_MIC=":2"`). Falta o modelo da Apple (quando o Apple
+   Intelligence terminar de baixar).
+5. ~~Protocolo entre o celular e a medula, testado num rádio falso.~~ Feito (acima, ADR-005). Depois: o firmware da
+   medula no ESP32 (bancada, quando a placa e os servos estiverem à mão) e o app do iPhone, os dois passando nos
+   pacotes de exemplo do `protocol.py`.

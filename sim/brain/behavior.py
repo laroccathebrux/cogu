@@ -359,12 +359,14 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--perception", choices=("phone", "true"), default="phone")
+    ap.add_argument("--link", choices=tuple(petlib.PROFILES), default="ideal",
+                    help="the radio between the phone and the medula (medula.py)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--memory", default=None, metavar="DIR", help="load memory.json and map.npz from DIR first")
     ap.add_argument("--no-autonomy", action="store_true")
     ap.add_argument("--speed", type=float, default=1.0)
     args = ap.parse_args(argv)
-    opts = dict(seed=args.seed, perception=args.perception)
+    opts = dict(seed=args.seed, perception=args.perception, link=args.link)
     if args.test:
         return run_tests(**opts)
     pet = petlib.Pet(**opts)

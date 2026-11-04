@@ -5,6 +5,7 @@
     uv run python sim/brain/pet.py --test                       # the scenarios, headless, with their numbers
     uv run python sim/brain/pet.py --plot --video               # -> docs/renders/sim_pet_phone.png, sim_pet_siga_phone.mp4
     uv run python sim/brain/pet.py --test --perception true     # the same with the true positions (no sensors)
+    uv run python sim/brain/pet.py --test --link ruim           # over a bad radio to the medula (medula.py, ADR-005)
 
 Commands (what the phone's speech recognition will hand over, no LLM in between): **pare** (stop now, stay stopped),
 **fica** (stay here, keep facing the person), **vem** (come to the person and stop in front of them, then fica),
@@ -41,6 +42,8 @@ import mujoco  # noqa: E402
 import numpy as np  # noqa: E402
 
 import play  # noqa: E402
+import protocol as proto  # noqa: E402
+from medula import PROFILES, Channel, LinkProfile, Medula  # noqa: E402
 from navigation import FloorMap, PathFollower, Planner, path_length, wrap  # noqa: E402
 from perception import PhonePerception, TruePerception, true_pose  # noqa: E402
 from rollout import latest_checkpoint  # noqa: E402
@@ -373,10 +376,12 @@ class Brain:
 
 
 class Pet:
-    """The robot (walk v10, get-up v8), the person and the brain on one MjData."""
+    """The robot, the person and the phone on one MjData. The phone side (perception, brain, behaviour) talks to the
+    medula (medula.py: walk v10, get-up v8, the sit / lie script) only through protocol.py packets over a simulated
+    radio `link` (medula.PROFILES: "ideal" is every control step with no delay, "ble", "ruim")."""
 
     def __init__(self, xml: Path = APARTMENT_XML, seed: int = 0, vmax: float = 0.25, person_speed: float = 0.25,
-                 delay: int = 0, perception: str = "phone"):
+                 delay: int = 0, perception: str = "phone", link: str | LinkProfile = "ideal"):
         self.sim = play.Sim2Sim(xml, latest_checkpoint(WALK), delay_steps=delay, seed=seed)
         self.getup = play.GetupPolicy(self.sim, latest_checkpoint(GETUP))
         self.m, self.d, self.dt = self.sim.m, self.sim.d, self.sim.dt
@@ -390,10 +395,17 @@ class Pet:
             self.perception = TruePerception(self.m, self.d)
         self.brain = Brain(self.perception, self.dt, vmax)
         self.pose = play.PosePolicy(self.sim, None)               # sit / lie down: the scripted reference
+        self.medula = Medula(self.sim, self.getup, self.pose)
+        self.link = PROFILES[link] if isinstance(link, str) else link
+        self.down, self.up = Channel(self.link, seed=1000 + seed), Channel(self.link, seed=2000 + seed)
+        self.seen = proto.Telemetry()                             # the phone's view of the medula: the last telemetry
+        self.seen_at = 0.0
+        self.want, self.posture_id = proto.STAND, 0               # the posture the phone asks for
+        self.cmd_seq, self.next_cmd, self.next_tel, self.urgent = 0, 0.0, 0.0, False
+        self._stopped = False
         self.behavior = None                                      # behavior.py hooks in here
         self.conversation = None                                  # and conversation.py
-        self.lie_when_seated = False
-        self.mode, self.falls, self.t = "walking", 0, 0.0
+        self.t = 0.0
         robot = np.array([self.m.body_rootid[self.m.geom_bodyid[g]] == 1 for g in range(self.m.ngeom)])
         static = (self.m.geom_bodyid == 0) & (self.m.geom_type != mujoco.mjtGeom.mjGEOM_PLANE)
         person = self.m.geom_bodyid == self.m.body("person").id
@@ -405,58 +417,74 @@ class Pet:
             return self.behavior.hear(text)
         return self.brain.hear(text)
 
+    # -- the phone's side of the link ----------------------------------------------------------------------
+    @property
+    def mode(self) -> str:
+        """What the phone knows from the telemetry: 'walking', 'pose' (sitting, lying or on the way) or
+        'getting up'."""
+        s = self.seen.state_name
+        return s if s in ("walking", "getting up") else "pose"
+
+    @property
+    def falls(self) -> int:
+        return self.medula.falls       # (the truth, for the tests; the phone sees seen.falls)
+
     def posture(self, kind: str):
-        """'sit', 'lie' or 'stand' (from sitting: the pose script back to `rest`; from lying: get-up v8)."""
-        self.lie_when_seated = kind == "lie"
+        """'sit', 'lie' or 'stand': a new request to the medula (it acts once per request)."""
         if self.mode == "walking" and kind in ("sit", "lie"):
             self.brain.cmd[:] = 0.0
-            self.pose.start(1)                # lying down starts from the seat, as in pose_eval
-            self.mode = "pose"
-        elif self.mode == "pose":
-            if kind == "stand" and self.pose.lying:
-                self.getup.start()
-                self.mode = "getting up"
-            elif not self.pose.lying:
-                self.pose.mode = {"stand": 0, "sit": 1, "lie": 2}[kind]
+        self.want, self.posture_id, self.urgent = proto.POSTURES[kind], (self.posture_id + 1) & 0xFF, True
 
     def posture_state(self) -> str:
-        if self.mode == "getting up":
-            return "levantando"
-        if self.mode == "pose":
-            return {"lying": "deitado", "lying down": "deitando", "sitting": "sentado", "sitting down": "sentando",
-                    "standing up": "levantando"}[self.pose.state()]
-        return "em pé"
+        return {"walking": "em pé", "sitting down": "sentando", "sitting": "sentado", "lying down": "deitando",
+                "lying": "deitado", "standing up": "levantando", "getting up": "levantando"}[self.seen.state_name]
+
+    def _send(self, cmd: np.ndarray):
+        stop = self.brain.mode == "pare"
+        if stop and not self._stopped:
+            self.urgent = True                                    # "pare" goes out now, not at the next tick
+        self._stopped = stop
+        if not (self.urgent or self.t >= self.next_cmd - 1e-9):
+            return
+        c = proto.Command(self.cmd_seq, cmd[0], cmd[1], cmd[2], self.want, self.posture_id, stop)
+        self.down.send(self.t, c.encode())
+        self.cmd_seq = (self.cmd_seq + 1) & 0xFF
+        if self.t >= self.next_cmd - 1e-9:
+            self.next_cmd += 1.0 / self.link.command_hz
+        self.urgent = False
+
+    def _hear_medula(self):
+        for data in self.up.deliver(self.t):
+            try:
+                tel = proto.Telemetry.decode(data)
+            except ValueError:
+                continue
+            if not proto.newer(tel.seq, self.seen.seq) and self.seen_at > 0.0:
+                continue
+            was = self.mode
+            self.seen, self.seen_at = tel, self.t + 1e-9
+            if was != "walking" and self.mode == "walking":       # back on its feet: the walk starts from 0
+                self.brain.cmd[:] = 0.0
+
+    def link_stats(self) -> dict:
+        s = self.medula.stats
+        return dict(lost=self.down.stats["lost"] + self.up.stats["lost"], rejected=s["rejected"], stale=s["stale"],
+                    watchdog=s["watchdog"], gap=s["longest_gap"])
 
     def step(self):
         self.person.step(self.dt, avoid=self.d.xpos[1, :2], fmap=self.walls)
         self.perception.update(self.t, self.dt)
         if self.behavior is not None:
             self.behavior.step(self.t)
-        if self.mode == "walking":
-            self.sim.command[:] = self.brain.step(self.t)
-            self.sim.step()
-            if self.sim.fallen():
-                self.falls += 1
-                self.getup.start()
-                self.mode = "getting up"
-        elif self.mode == "pose":
-            if self.lie_when_seated and self.pose.state() == "sitting":
-                self.pose.mode, self.lie_when_seated = 2, False
-            self.pose.step()
-            if self.pose.ready():                         # back in `rest`: the walker takes over
-                self.sim.handover()
-                self.brain.cmd[:] = 0.0
-                self.mode = "walking"
-            elif self.pose.fallen():
-                self.falls += 1
-                self.getup.start()
-                self.mode = "getting up"
-        else:
-            self.getup.step()
-            if self.getup.ready():
-                self.sim.handover()
-                self.brain.cmd[:] = 0.0
-                self.mode = "walking"
+        cmd = self.brain.step(self.t) if self.mode == "walking" else self.brain.cmd
+        self._send(cmd)
+        for data in self.down.deliver(self.t):
+            self.medula.receive(data, self.t)
+        self.medula.step()
+        if self.t >= self.next_tel - 1e-9:
+            self.up.send(self.t, self.medula.telemetry())
+            self.next_tel += 1.0 / self.link.telemetry_hz
+        self._hear_medula()
         c = self.d.contact[:self.d.ncon]
         g1, g2 = c.geom1, c.geom2
         if np.any((self._robot[g1] & self._bump[g2]) | (self._robot[g2] & self._bump[g1])):
@@ -489,6 +517,11 @@ class Pet:
 
 
 # -- the scenarios ---------------------------------------------------------------------------------------------
+def link_report(pet: Pet) -> dict:
+    """Over a real link: packets lost (both ways), refused by the CRC, late, watchdog trips, longest gap (s)."""
+    return {} if pet.link.name == "ideal" else pet.link_stats()
+
+
 def scenario_come(person_xy, seconds: float = 40.0, **opts) -> dict:
     """The person stands at `person_xy`; 'vem' from the start pose; when (and how) does the robot get there?"""
     pet = Pet(**opts)
@@ -503,7 +536,7 @@ def scenario_come(person_xy, seconds: float = 40.0, **opts) -> dict:
     pet.run(seconds, watch)
     pet.close()
     return dict(arrived=arrived[0], dist=pet.distance(), facing=pet.facing_error(), falls=pet.falls,
-                bumps=pet.bumps, reflex=pet.brain.reflex)
+                bumps=pet.bumps, reflex=pet.brain.reflex, **link_report(pet))
 
 
 def scenario_follow(seconds: float = 90.0, stop_at: float | None = None, resume_at: float | None = None,
@@ -534,7 +567,7 @@ def scenario_follow(seconds: float = 90.0, stop_at: float | None = None, resume_
     d = np.array(dists)
     return dict(mean=float(d.mean()), p90=float(np.percentile(d, 90)), max=float(d.max()), min=float(d.min()),
                 end=pet.distance(), far_x=max(reach), falls=pet.falls, bumps=pet.bumps,
-                reflex=pet.brain.reflex, **stop)
+                reflex=pet.brain.reflex, **stop, **link_report(pet))
 
 
 def scenario_stay(seconds: float = 75.0, **opts) -> dict:
@@ -549,7 +582,7 @@ def scenario_stay(seconds: float = 75.0, **opts) -> dict:
     e = np.array(errs)
     return dict(drift=float(np.linalg.norm(np.array(pet.true_pose()[:2]) - start)),
                 facing_mean=float(e.mean()), facing_p90=float(np.percentile(e, 90)), falls=pet.falls,
-                bumps=pet.bumps)
+                bumps=pet.bumps, **link_report(pet))
 
 
 def run_tests(**opts) -> int:
@@ -703,9 +736,13 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                                 pet.conversation.voice.say(said)
                     shown = len(pet.behavior.log)
             b, c = pet.brain, pet.brain.cmd
-            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls\nbody",
+            tel = pet.seen
+            link = (f"{pet.link.name}, {tel.battery:.2f} V" + (", watchdog" if tel.flags & proto.WATCHDOG else "")
+                    + (", low battery" if tel.flags & proto.LOW_BATTERY else ""))
+            v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT,
+                         "command\nbrain\nwalk\nperson\nfalls\nbody\nmedula",
                          f"{b.mode}\n{b.said}\nvx {c[0]:+.2f}  wz {c[2]:+.2f}\n{pet.distance():.2f} m"
-                         f"{'' if b.person()[1] else ' (out of sight)'}\n{pet.falls}\n{pet.posture_state()}"))
+                         f"{'' if b.person()[1] else ' (out of sight)'}\n{pet.falls}\n{pet.posture_state()}\n{link}"))
             v.sync()
             sleep = pet.dt / speed - (time.perf_counter() - t0)
             if sleep > 0:
@@ -722,6 +759,8 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--perception", choices=("phone", "true"), default="phone",
                     help="phone: only the simulated LiDAR, ARKit and detectors; true: the true positions")
+    ap.add_argument("--link", choices=tuple(PROFILES), default="ideal",
+                    help="the radio between the phone and the medula (medula.py): ideal, ble or ruim")
     ap.add_argument("--plot", nargs="?", const="",
                     help="top view of the tracks on 'siga' and 'vem' (default docs/renders/sim_pet_phone.png, "
                          "sim_pet_commands.png with --perception true)")
@@ -729,7 +768,8 @@ def main(argv=None) -> int:
                     help="video of 'siga' on the tour, 2x (default docs/renders/sim_pet_siga_phone.mp4, "
                          "sim_pet_siga.mp4 with --perception true)")
     args = ap.parse_args(argv)
-    opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed, perception=args.perception)
+    opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed, perception=args.perception,
+                link=args.link)
     if args.test:
         return run_tests(**opts)
     if args.plot is not None or args.video is not None:

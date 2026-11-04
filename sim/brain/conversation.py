@@ -305,12 +305,14 @@ def main(argv=None) -> int:
                     help="viewer: Enter (empty line) starts and stops the microphone, the Cogu speaks (ElevenLabs)")
     ap.add_argument("--think", action="store_true", help="let a qwen3 model think first (it needs it to call tools)")
     ap.add_argument("--perception", choices=("phone", "true"), default="phone")
+    ap.add_argument("--link", choices=tuple(petlib.PROFILES), default="ideal",
+                    help="the radio between the phone and the medula (medula.py)")
     ap.add_argument("--memory", default=None, metavar="DIR", help="load memory.json and map.npz from DIR first")
     ap.add_argument("--hard", action="store_true", help="--test: the harder dialogue (DIALOGUE_HARD)")
     ap.add_argument("--no-autonomy", action="store_true")
     ap.add_argument("--speed", type=float, default=1.0)
     args = ap.parse_args(argv)
-    opts = dict(perception=args.perception)
+    opts = dict(perception=args.perception, link=args.link)
     try:
         model, label = make_model(args)
     except RuntimeError as e:                           # (no ElevenLabs agent yet)
