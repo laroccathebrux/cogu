@@ -118,6 +118,8 @@ navegação perto do sofá, não o rádio. Corrigido em seguida (o ponto de cheg
 ## Consequências
 
 - O firmware da medula e o app do iPhone têm um contrato fechado e testes prontos (os pacotes de exemplo).
+- O firmware já existe e passa nesses testes (`firmware/medula`, 2026-11-04): o mesmo C++ roda no simulador no lugar do
+  `medula.py` e gera os mesmos pacotes byte a byte.
 - A marcha nunca depende do rádio: com a ligação caída, o Cogu para em menos de um segundo e espera.
 - Mudar o formato exige subir a versão no byte 0; a medula descarta versões que não conhece.
 

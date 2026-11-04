@@ -14,3 +14,7 @@ sim/mjcf/meshes/
 .vscode/
 .idea/
 .DS_Store
+
+# medula firmware: generated headers (firmware/medula/tools/export.py) and the PlatformIO build
+firmware/medula/gen/
+firmware/medula/esp32/.pio/

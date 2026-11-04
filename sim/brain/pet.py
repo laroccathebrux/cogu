@@ -6,6 +6,7 @@
     uv run python sim/brain/pet.py --plot --video               # -> docs/renders/sim_pet_phone.png, sim_pet_siga_phone.mp4
     uv run python sim/brain/pet.py --test --perception true     # the same with the true positions (no sensors)
     uv run python sim/brain/pet.py --test --link ruim           # over a bad radio to the medula (medula.py, ADR-005)
+    uv run python sim/brain/pet.py --test --medula c            # on the medula firmware (C++, medula_c.py)
 
 Commands (what the phone's speech recognition will hand over, no LLM in between): **pare** (stop now, stay stopped),
 **fica** (stay here, keep facing the person), **vem** (come to the person and stop in front of them, then fica),
@@ -389,13 +390,20 @@ class Brain:
         return want
 
 
+MEDULAS = ("py", "c", "robot")
+MEDULA_HELP = ("the medula: py (medula.py), c (the C++ firmware, medula_c.py) or robot (the firmware sensing only what "
+               "the robot can, gravity from its IMU filter)")
+
+
 class Pet:
     """The robot, the person and the phone on one MjData. The phone side (perception, brain, behaviour) talks to the
     medula (medula.py: walk v10, get-up v8, the sit / lie script) only through protocol.py packets over a simulated
-    radio `link` (medula.PROFILES: "ideal" is every control step with no delay, "ble", "ruim")."""
+    radio `link` (medula.PROFILES: "ideal" is every control step with no delay, "ble", "ruim"). `medula`: "py" the
+    Python one, "c" the firmware (firmware/medula, C++, through medula_c.py), "robot" the firmware sensing only what
+    the robot can (no pelvis height or speed) with the gravity from its own IMU filter."""
 
     def __init__(self, xml: Path = APARTMENT_XML, seed: int = 0, vmax: float = 0.25, person_speed: float = 0.25,
-                 delay: int = 0, perception: str = "phone", link: str | LinkProfile = "ideal"):
+                 delay: int = 0, perception: str = "phone", link: str | LinkProfile = "ideal", medula: str = "py"):
         self.sim = play.Sim2Sim(xml, latest_checkpoint(WALK), delay_steps=delay, seed=seed)
         self.getup = play.GetupPolicy(self.sim, latest_checkpoint(GETUP))
         self.m, self.d, self.dt = self.sim.m, self.sim.d, self.sim.dt
@@ -409,7 +417,11 @@ class Pet:
             self.perception = TruePerception(self.m, self.d)
         self.brain = Brain(self.perception, self.dt, vmax)
         self.pose = play.PosePolicy(self.sim, None)               # sit / lie down: the scripted reference
-        self.medula = Medula(self.sim, self.getup, self.pose)
+        if medula == "py":
+            self.medula = Medula(self.sim, self.getup, self.pose)
+        else:
+            from medula_c import MedulaC
+            self.medula = MedulaC(self.sim, truth=medula == "c", imu="filter" if medula == "robot" else "perfect")
         self.link = PROFILES[link] if isinstance(link, str) else link
         self.down, self.up = Channel(self.link, seed=1000 + seed), Channel(self.link, seed=2000 + seed)
         self.seen = proto.Telemetry()                             # the phone's view of the medula: the last telemetry
@@ -773,6 +785,7 @@ def main(argv=None) -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--perception", choices=("phone", "true"), default="phone",
                     help="phone: only the simulated LiDAR, ARKit and detectors; true: the true positions")
+    ap.add_argument("--medula", choices=MEDULAS, default="py", help=MEDULA_HELP)
     ap.add_argument("--link", choices=tuple(PROFILES), default="ideal",
                     help="the radio between the phone and the medula (medula.py): ideal, ble or ruim")
     ap.add_argument("--plot", nargs="?", const="",
@@ -783,7 +796,7 @@ def main(argv=None) -> int:
                          "sim_pet_siga.mp4 with --perception true)")
     args = ap.parse_args(argv)
     opts = dict(delay=args.delay, person_speed=args.person_speed, seed=args.seed, perception=args.perception,
-                link=args.link)
+                link=args.link, medula=args.medula)
     if args.test:
         return run_tests(**opts)
     if args.plot is not None or args.video is not None:

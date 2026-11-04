@@ -16,6 +16,7 @@ MuJoCo, antes do app em Swift. Tudo que o celular vai ver sai da câmera `phone_
 | `eleven.py` | A ElevenLabs: o agente (modelo na nuvem), o ouvido (Scribe) e a voz, com as frases fixas gravadas |
 | `protocol.py` | Os pacotes entre o celular e a medula (ADR-005): COMANDO e TELEMETRIA, binários, ≤ 20 bytes, com CRC |
 | `medula.py` | A medula (o que o firmware do ESP32 vai fazer: marcha, posturas, quedas, watchdog, bateria) e um rádio falso |
+| `medula_c.py` | O firmware da medula (C++, `firmware/medula`) no lugar do `medula.py`, e a conferência entre os dois |
 
 ## Apartamento
 
@@ -419,6 +420,20 @@ nenhum toque em móvel, "pare" parado em 0,30 s, as posturas no máximo 2 s mais
 Revisável: as correntes da bateria e os limites de tensão são chutes; 0,3 s de watchdog e 10 Hz esperam a medição
 do BLE real.
 
+## O firmware da medula no simulador
+
+A medula agora também existe em C++, o código que vai para o ESP32 (`firmware/medula`, README lá). O simulador o
+carrega como biblioteca (`medula_c.py`) no lugar do `medula.py`, com o MuJoCo no papel do corpo: `--medula c` em
+`pet.py`, `behavior.py` e `conversation.py`, ou `--medula robot` para o firmware sentir só o que o robô sente (sem
+altura nem velocidade do quadril, gravidade pelo filtro da IMU). Na sombra da medula em Python, os alvos dos
+servos ficam a 1,5 × 10⁻⁵ rad e o estado e a telemetria são iguais em todos os passos; os cenários dão os mesmos
+números.
+
+```bash
+uv run python sim/brain/medula_c.py --test           # o firmware contra a medula em Python, e sozinho
+uv run python sim/brain/pet.py --test --medula robot # o cérebro em cima do firmware, como no robô
+```
+
 ## Próximos passos
 
 1. ~~Navegação e comandos com percepção perfeita (posição verdadeira da pessoa e da bola): siga, pare, vem, fica.~~
@@ -432,3 +447,6 @@ do BLE real.
 5. ~~Protocolo entre o celular e a medula, testado num rádio falso.~~ Feito (acima, ADR-005). Depois: o firmware da
    medula no ESP32 (bancada, quando a placa e os servos estiverem à mão) e o app do iPhone, os dois passando nos
    pacotes de exemplo do `protocol.py`.
+6. ~~O firmware da medula em C++, conferido no simulador.~~ Feito (`firmware/medula`): o mesmo código do ESP32 roda
+   no lugar do `medula.py` e dá os mesmos números. Falta a bancada: pinos, calibração das juntas, a IMU de verdade e
+   o tempo do laço na placa.

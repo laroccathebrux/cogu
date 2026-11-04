@@ -312,7 +312,7 @@ def scenario_autonomy(**opts) -> None:
     pet = petlib.Pet(**opts)
     pet.person.place(1.3, -0.3, math.pi)
     beh = Behavior(pet)
-    sat = until(pet, lambda p: p.mode == "pose" and p.pose.state() == "sitting", 70.0)
+    sat = until(pet, lambda p: p.medula.state_name == "sitting", 70.0)
     print(f"  sat down by itself after {sat if sat is None else round(sat, 1)} s")
     pet.person.walk([(0.3, -1.0), (-1.2, -0.8), (-1.2, 0.8)])     # behind the robot, out of its sight
     up = until(pet, lambda p: p.mode == "walking", 30.0)
@@ -333,7 +333,7 @@ def scenario_postures(**opts) -> None:
     beh = Behavior(pet, autonomy=False)
     for q, done, limit in (("senta", lambda p: p.posture_state() == "sentado", 10.0),
                            ("vem", lambda p: p.brain.mode == "fica" and p.mode == "walking", 40.0),
-                           ("deita", lambda p: p.posture_state() == "deitado" and p.pose.stretched, 15.0),
+                           ("deita", lambda p: p.medula.state_name == "lying", 15.0),
                            ("levanta", lambda p: p.mode == "walking", 15.0)):
         print(f"  > {q}: {beh.hear(q)}", end="")
         took = until(pet, done, limit)
@@ -359,6 +359,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", action="store_true")
     ap.add_argument("--perception", choices=("phone", "true"), default="phone")
+    ap.add_argument("--medula", choices=petlib.MEDULAS, default="py", help=petlib.MEDULA_HELP)
     ap.add_argument("--link", choices=tuple(petlib.PROFILES), default="ideal",
                     help="the radio between the phone and the medula (medula.py)")
     ap.add_argument("--seed", type=int, default=0)
@@ -366,7 +367,7 @@ def main(argv=None) -> int:
     ap.add_argument("--no-autonomy", action="store_true")
     ap.add_argument("--speed", type=float, default=1.0)
     args = ap.parse_args(argv)
-    opts = dict(seed=args.seed, perception=args.perception, link=args.link)
+    opts = dict(seed=args.seed, perception=args.perception, link=args.link, medula=args.medula)
     if args.test:
         return run_tests(**opts)
     pet = petlib.Pet(**opts)

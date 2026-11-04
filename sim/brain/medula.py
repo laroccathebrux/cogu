@@ -269,16 +269,17 @@ def selftest() -> int:
     return 0
 
 
-def scenarios() -> int:
-    """The medula alone in the apartment (no brain), fed packets by hand."""
+def scenarios(make=None) -> int:
+    """The medula alone in the apartment (no brain), fed packets by hand. `make(sim, getup, pose, battery)`: another
+    medula with this one's interface (medula_c.MedulaC, the firmware)."""
     import pet as petlib                       # (pet.py imports this module: import it here)
     import play
     from rollout import latest_checkpoint
 
     def body(charge: float = 1.0):
         sim = play.Sim2Sim(petlib.APARTMENT_XML, latest_checkpoint(petlib.WALK), seed=0)
-        med = Medula(sim, play.GetupPolicy(sim, latest_checkpoint(petlib.GETUP)), play.PosePolicy(sim, None),
-                     Battery(charge))
+        med = (make or Medula)(sim, play.GetupPolicy(sim, latest_checkpoint(petlib.GETUP)),
+                               play.PosePolicy(sim, None), Battery(charge))
         return sim, med
 
     def run(sim, med, seconds, each=None):
