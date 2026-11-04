@@ -28,6 +28,7 @@ on-device recogniser hears it, ADR-004, item 6). Only text goes to the agent: th
 from __future__ import annotations
 
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -289,22 +290,59 @@ class Agent:
 
 
 # -- the voice and the ears --------------------------------------------------------------------------------------
-class Voice:
-    """`say(text)`: spoken in order, in a thread (the brain doesn't wait). `seconds`: time to the audio, per phrase."""
+def fixed_phrases() -> list[str]:
+    """What the Cogu says without a language model (behavior.Tools, the autonomy, the fallback): recorded once in
+    his voice, it plays at once and offline (ADR-004, item 5)."""
+    import conversation as conv
+    from memory import AFFORDANCES, article
+    said = ["Parei.", "Fico aqui.", "Tô indo!", "Vou atrás de você.", "Tá bom!", "Vou te procurar.", "Sentei.",
+            "Vou deitar.", "Levantei!", "Não estou vendo nada que eu conheça.", "Não entendi.", "Não te achei.",
+            "Vou sentar um pouco.", "Cadê você? Vou procurar.", "Opa, cadê você?", conv.OFFLINE]
+    names = [lab for lab in AFFORDANCES if lab != "pessoa"] + ["sala", "corredor", "cozinha", "quarto", "varanda"]
+    said += [f"Vou até {article(n)}{n}." for n in names] + [f"Tá, aqui é {article(n)}{n}." for n in names[-5:]]
+    return said
 
-    def __init__(self, api: Api | None = None, voice_id: str | None = None, play: bool = True):
+
+class Voice:
+    """`say(text)`: spoken in order, in a thread (the brain doesn't wait). A phrase already recorded in the voice
+    (`record`, `build/elevenlabs/frases/<voice>/`) plays from the file, with no network; any other is made live
+    (and kept). `seconds`: time to the audio, per phrase; `cached`: how many came from the files."""
+
+    def __init__(self, api: Api | None = None, voice_id: str | None = None, play: bool = True,
+                 cache: Path | None = None):
         cfg = load_agent(missing_ok=True) or {}
         self.api, self.voice_id, self.play = api or Api(), voice_id or cfg.get("voice_id") or VOICE, play
+        self.cache = (cache or CONFIG.parent / "frases") / self.voice_id
         self.seconds: list[float] = []
+        self.cached = 0
         self.q: queue.Queue = queue.Queue()
         threading.Thread(target=self._speaker, daemon=True).start()
 
-    def audio(self, text: str) -> bytes:
+    def _file(self, text: str) -> Path:
+        return self.cache / (hashlib.sha1(f"{TTS_MODEL}|{text}".encode()).hexdigest()[:16] + ".mp3")
+
+    def audio(self, text: str, keep: bool = True) -> bytes:
         t0 = time.perf_counter()
-        data = self.api.post(f"/v1/text-to-speech/{self.voice_id}", raw=True, params={"output_format": "mp3_44100_64"},
-                             json={"text": text, "model_id": TTS_MODEL, "language_code": LANGUAGE})
+        f = self._file(text)
+        if f.exists():
+            data = f.read_bytes()
+            self.cached += 1
+        else:
+            data = self.api.post(f"/v1/text-to-speech/{self.voice_id}", raw=True,
+                                 params={"output_format": "mp3_44100_64"},
+                                 json={"text": text, "model_id": TTS_MODEL, "language_code": LANGUAGE})
+            if keep and len(text) <= 80:                 # short phrases come back (long answers rarely do)
+                f.parent.mkdir(parents=True, exist_ok=True)
+                f.write_bytes(data)
         self.seconds.append(time.perf_counter() - t0)
         return data
+
+    def record(self, phrases: list[str]) -> int:
+        """Record the phrases not yet in the files; returns how many were new."""
+        new = [p for p in phrases if not self._file(p).exists()]
+        for p in new:
+            self.audio(p)
+        return len(new)
 
     def say(self, text: str):
         self.q.put(text)
@@ -317,7 +355,7 @@ class Voice:
             text = self.q.get()
             try:
                 self._play(self.audio(text))
-            except Exception as e:                       # no key, offline: it only prints
+            except Exception as e:                       # no key, offline, and not recorded: it only prints
                 print(f"  (voz: {e})")
 
     def _play(self, data: bytes):
@@ -507,8 +545,11 @@ def selftest() -> int:
     made = [m for m in seen if m["type"] == "_create_agent"][0]
     assert made["conversation_config"]["agent"]["prompt"]["tool_ids"] == [f"tool_{n}" for n in conv.TOOLS]
     assert made["conversation_config"]["conversation"]["text_only"]
-    voice, ears = Voice(api, play=False), Ears(api)
+    cache = Path(tempfile.mkdtemp())
+    voice, ears = Voice(api, play=False, cache=cache), Ears(api)
     voice.say_now("Oi, eu sou o Cogu!")
+    voice.say_now("Oi, eu sou o Cogu!")
+    assert voice.cached == 1 and voice.record(["Parei.", "Oi, eu sou o Cogu!"]) == 1
     with tempfile.NamedTemporaryFile(suffix=".wav") as f:
         with wave.open(f.name, "wb") as w:
             w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000), w.writeframes(b"\0\0" * 1600)
@@ -535,6 +576,7 @@ def main(argv=None) -> int:
     ap.add_argument("--voice", default=None, help="a voice id (from --voices)")
     ap.add_argument("--voices", action="store_true", help="list the voices of the account")
     ap.add_argument("--say", metavar="TEXT", help="speak a phrase")
+    ap.add_argument("--record", action="store_true", help="record the fixed phrases in the voice (offline speech)")
     ap.add_argument("--listen", action="store_true", help="record until Enter and print what Scribe understood")
     ap.add_argument("--selftest", action="store_true", help="test the client against a fake local server (no key)")
     args = ap.parse_args(argv)
@@ -548,6 +590,10 @@ def main(argv=None) -> int:
                 print(f"  {v['voice_id']}  {v['name']}  ({labels})")
         if args.setup:
             setup(api, args.llm, args.voice)
+        if args.record:
+            v = Voice(api, args.voice, play=False)
+            phrases = fixed_phrases()
+            print(f"  {v.record(phrases)} new of {len(phrases)} fixed phrases -> {v.cache}")
         if args.say:
             v = Voice(api, args.voice)
             v.say_now(args.say)

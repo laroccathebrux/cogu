@@ -78,6 +78,7 @@ TOOLS = {   # name: (description, {argument: description})
                       "nunca por conta própria.",
                       {"nome": "o nome do lugar, sem artigo"}),
 }
+OFFLINE = "Agora não consigo pensar; só entendo os comandos simples."
 MOVING = ("vir", "seguir", "procurar", "ir_ate")
 ACTIONS = MOVING + ("ficar", "livre", "sentar", "deitar", "levantar")   # after a move in the same turn: queued
 
@@ -149,7 +150,7 @@ class Conversation:
         try:
             reply = self._think(text, called)
         except Exception as e:                          # no model (offline, not running, too slow)
-            reply = "Agora não consigo pensar; só entendo os comandos simples."
+            reply = OFFLINE
             called.append(f"(erro: {type(e).__name__})")
         with self.lock:
             b.say(reply)

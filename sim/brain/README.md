@@ -299,6 +299,11 @@ No viewer o modelo pensa numa thread separada, e o robô continua andando enquan
   a transcrição. No celular quem ouve o "pare" é o reconhecimento de fala do aparelho (ADR-004, item 6).
 - **Voz** (`--voz`): eleven_flash_v2_5 (~0,1 s, fala português) → alto-falante (afplay), em ordem, numa thread. Fala
   tudo o que o Cogu diz, inclusive o que vem da autonomia ("achei você").
+  - **Frases gravadas** (`eleven.py --record`): as 33 frases fixas ("Parei.", "Sentei.", "Vou até a bola.", "Não te
+    achei.", a de quando fica sem modelo, ...) ficam gravadas na voz em `build/elevenlabs/frases/<voz>/`.
+  - Uma frase gravada toca do arquivo, na hora (~0 ms em vez de ~0,3 s) e sem internet (ADR-004, item 5).
+  - Uma frase nova é gerada na hora e, se for curta, guardada.
+  - Sem internet, uma frase que não foi gravada só aparece escrita. No celular, essas frases vão junto com o app.
 
 O ouvido e a voz servem para qualquer cérebro, inclusive o modelo local. A chave vem de `ELEVENLABS_API_KEY` ou,
 se ela não estiver definida, do arquivo `~/.config/cogu/elevenlabs_key`, fora do repositório, que qualquer terminal
@@ -314,6 +319,7 @@ mkdir -p ~/.config/cogu && read -rs "k?Chave da ElevenLabs: " && print -r -- "$k
 uv run python sim/brain/eleven.py --voices                          # as vozes da conta
 uv run python sim/brain/eleven.py --setup --voice <id>              # cria ou atualiza o agente
 uv run python sim/brain/eleven.py --say "Oi, eu sou o Cogu!"        # ouvir a voz
+uv run python sim/brain/eleven.py --record                          # gravar as frases fixas na voz
 uv run python sim/brain/eleven.py --listen                          # testar o microfone e o Scribe
 uv run python sim/brain/conversation.py --test --brain elevenlabs   # o diálogo de 9 falas com o agente
 uv run python sim/brain/conversation.py --test --hard --brain elevenlabs   # o diálogo difícil, de 10
