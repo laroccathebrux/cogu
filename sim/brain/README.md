@@ -222,7 +222,7 @@ Resultados (2026-11-03, `uv run python sim/brain/behavior.py --test`, só o celu
 | "cadê a bola?" | "A bola está perto da mesa, na sala (vi há 37 s)." |
 | "vai até a bola" | chega em 7,6 s, a 0,59 m da bola |
 | "vai para o corredor" (nomeado na volta) | chega em 13,3 s (x 2,71 m, na porta do corredor) |
-| "vai até o sofá" | chega em 17,7 s, a ~0,2 m da frente do sofá |
+| "vai até o sofá" | chega em 10–16 s em 8 de 8 sementes (5 no rádio ideal, 3 no ruim), na ponta da mesa, a ~0,25 m da frente do sofá |
 | sessão seguinte, memória e mapa do disco | "vai para o corredor" sem vê-lo do início: 15,5 s |
 | livre, a pessoa parada à vista | senta sozinho aos 44 s |
 | a pessoa passa por trás dele, fora da vista | levanta 14,5 s depois e sai procurando 7,6 s depois; acha a pessoa em 18,8 s, a 1,0 m |
@@ -241,6 +241,10 @@ Revisável:
 - tempos da autonomia: senta depois de 40 s, procura depois de 15 s sem ver a pessoa e desiste depois de 15 s;
 - a posição de um móvel é a média dos lados que ele viu (o sofá fica ~0,4 m para a frente do meio). Para ir até
   ele e dizer onde está, isso basta;
+- o ponto de chegada do "vai até" é escolhido entre células que o mapa já viu, com 4 cm de folga além do raio do
+  robô, e é mantido enquanto der para chegar nele. Antes, o ponto caía na fresta de 30 cm entre o sofá e a mesa
+  (cabe no limite) ou em cima do sofá (ainda não visto); conforme o LiDAR via melhor, o destino pulava de um lado
+  da mesa para o outro, e ele chegava em só 1 de 3 sementes;
 - lugares só por nome dado pela voz. Salas automáticas, separando o mapa por portas, ficam para quando houver mais
   de um cômodo para testar.
 

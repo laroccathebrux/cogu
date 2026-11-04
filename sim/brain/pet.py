@@ -60,6 +60,7 @@ COME_RING = (0.50, 0.60)  # m from the person: where "vem" stops
 FOLLOW_RING = (0.70, 0.80)
 FOLLOW_START = 1.0        # m: "siga" sets off again when the person is farther than this (or out of sight)
 REPLAN = 0.5              # s
+GOAL_MARGIN = 0.04        # m of clearance beyond the robot's radius that an "ir" goal cell should have
 LOST = 1.0                # s without seeing the person: out of sight
 TURN_CLEAR = 0.14         # m: turning in place sweeps ~11 cm around the pelvis (plus some drift); closer to
                           # something than this, the robot first steps sideways / back out of there
@@ -174,6 +175,7 @@ class Brain:
         self.turning = False          # facing: turning in place (hysteresis)
         self.searching = False        # the person is out of sight where they were last: look around
         self.goal = None              # ir: (xy, ring m, label)
+        self.goal_cell = None         # ir: the grid cell it is walking to
         self.cmd = np.zeros(3)
         self.reflex = 0               # steps the reflex held the robot back
         self.t = 0.0
@@ -213,6 +215,7 @@ class Brain:
         """pare / fica / vem / siga; livre (no order: the behaviour engine may act); procura (find the person, stop
         near them); ir (to `goal` = (xy, ring m, label))."""
         self.mode, self.goal, self.path, self.next_plan = cmd, goal, None, 0.0
+        self.goal_cell = None
         self.going = self.turning = self.searching = False
         if cmd == "pare":
             self.cmd[:] = 0.0         # no ramp: stop now
@@ -293,15 +296,26 @@ class Brain:
         xy, ring, label = self.goal
         if t >= self.next_plan or self.path is None:
             self.next_plan = t + REPLAN
-            self.planner.plan(self.dynamic_map(), (x, y))
-            cell, _ = self.planner.best_near(xy, ring, los=False)
-            if cell is None:                  # nothing free that close: the free spot nearest to it, within 1.5 m
-                cell, _ = self.planner.best_near(xy, (ring[0], 1.5), los=False, closest=True)
+            pl = self.planner
+            pl.plan(self.dynamic_map(), (x, y))
+            cell = self.goal_cell
+            if cell is None or not np.isfinite(pl.dist[cell]):
+                # a spot the map has seen, with room to spare, first: cells that barely fit flicker in and out of
+                # the LiDAR map as it fills in, and unseen ones (behind or on the sofa) turn out to be furniture, and
+                # the goal would jump from one side to the other; then nearest to it, within 1 m; then anything
+                # that fits, within 1.5 m
+                comfy = pl.radius + GOAL_MARGIN
+                for r, closest, need, known in ((ring, False, comfy, True), ((ring[0], 1.0), True, comfy, True),
+                                                (ring, False, 0.0, False), ((ring[0], 1.5), True, 0.0, False)):
+                    cell, _ = pl.best_near(xy, r, los=False, closest=closest, min_clear=need, known=known)
+                    if cell is not None:
+                        break
             if cell is None:
                 self.command("livre")
                 self.said = f"{label}: não acho caminho"
                 return np.zeros(3)
-            self.path = self.planner.path_to(cell)
+            self.goal_cell = cell             # kept while it can still be reached
+            self.path = pl.path_to(cell)
         vx, wz, remaining = self.follower.command(self.path, x, y, yaw) if len(self.path) > 1 else (0.0, 0.0, 0.0)
         if remaining < 0.05:
             self.command("livre")

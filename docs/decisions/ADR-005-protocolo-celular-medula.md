@@ -101,8 +101,9 @@ O comportamento (`behavior.py --test`), que pede posturas pela medula:
 | vai até a bola / o corredor | 7,3 / 12,2 s | 8,2 / 14,2 s |
 | quedas / toques | 0 / 0 | 0 / 0 |
 
-O "vai até o sofá" chega em 1 de 3 sementes nos dois perfis e também no código de antes do protocolo (antes: 17,7 s
-na semente 0 e não chega em 40 s nas sementes 1 e 2). É um problema da navegação perto do sofá, não do rádio.
+O "vai até o sofá" chegava em 1 de 3 sementes nos dois perfis e também no código de antes do protocolo: era a
+navegação perto do sofá, não o rádio. Corrigido em seguida (o ponto de chegada agora tem folga e não pula de lado;
+`sim/brain/README.md`): chega em 8 de 8 sementes, em 10–16 s, nos perfis ideal e ruim.
 
 ## Alternativas consideradas
 
