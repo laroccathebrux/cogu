@@ -663,6 +663,7 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
     print("type: siga / pare / vem / fica" + (" / livre / senta / deita / levanta / vai até a bola / cadê a bola? / "
           "o que você vê? / aqui é a sala / o que você sabe?" if pet.behavior else "")
           + (" or anything else (the language model answers)" if pet.conversation else "")
+          + ("; an empty Enter starts / stops the microphone" if getattr(pet.conversation, "ears", None) else "")
           + " (and Enter); andar / parar move the person; End = pare")
     shown = 0
     with mujoco.viewer.launch_passive(pet.m, pet.d, key_callback=on_key) as v:
@@ -677,6 +678,14 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                         pet.person.walk(TOUR)
                     elif text == "parar":
                         pet.person.walk([])
+                    elif not text and getattr(pet.conversation, "ears", None) is not None:   # Enter: talk
+                        ears = pet.conversation.ears
+                        pet.conversation.lock = v.lock()
+                        if ears.recording:
+                            ears.heard(pet.conversation.hear)
+                        else:
+                            ears.start()
+                            print("  (ouvindo... Enter para parar)")
                     elif text and pet.conversation is not None:          # the model thinks in a thread
                         pet.conversation.lock = v.lock()
                         threading.Thread(target=pet.conversation.hear, args=(text,), daemon=True).start()
@@ -690,6 +699,8 @@ def run_viewer(pet: Pet, speed: float = 1.0) -> int:
                     for _, who, said in pet.behavior.log[shown:]:
                         if who == "Cogu":
                             print(f"  Cogu: {said}")
+                            if getattr(pet.conversation, "voice", None) is not None:
+                                pet.conversation.voice.say(said)
                     shown = len(pet.behavior.log)
             b, c = pet.brain, pet.brain.cmd
             v.set_texts((None, mujoco.mjtGridPos.mjGRID_TOPLEFT, "command\nbrain\nwalk\nperson\nfalls\nbody",

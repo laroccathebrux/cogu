@@ -3,6 +3,8 @@
     uv run python sim/brain/conversation.py --test                    # the dialogue scenarios, local 3B model
     uv run python sim/brain/conversation.py --test --model qwen3.6:35b-mlx --think
     uv run mjpython sim/brain/conversation.py --memory build/brain_memory   # viewer: talk to it in the terminal
+    uv run python sim/brain/conversation.py --test --brain elevenlabs  # the same with the ElevenLabs agent
+    uv run mjpython sim/brain/conversation.py --brain elevenlabs --voz # viewer: talk to it by voice
 
 What the person says goes, in this order:
 1. **the fixed phrases** (behavior.parse: pare, fica, vem, siga, senta, "vai até a bola", "cadê a bola?", ...), when
@@ -13,10 +15,11 @@ What the person says goes, in this order:
    the same turn run one after the other ("vai até a bola e depois volta aqui");
 3. if the model doesn't answer: "Agora não consigo pensar; só entendo os comandos simples."
 
-The model here is a local one through Ollama (`--model`, default qwen2.5:3b, about the size of the iPhone's
-on-device model). On the phone the same loop calls Apple's on-device model (Foundation Models, with these tools) and,
-when that falls short, the language model of the ElevenLabs agents platform (ADR-004, item 4); both take the same
-tools and the same summary. Only text goes to a model: the summary and what was said.
+The model is a local one through Ollama (`--model`, default qwen2.5:3b, about the size of the iPhone's on-device
+model) or the ElevenLabs agent (`--brain elevenlabs`, eleven.py: a cloud model with these tools as client tools). On
+the phone the same loop calls Apple's on-device model (Foundation Models) and, when that falls short, the ElevenLabs
+agent (ADR-004, item 4); both take the same tools and the same summary. Only text goes to a model: the summary and
+what was said. `--voz` adds ElevenLabs' ears (Scribe) and voice (text to speech) around the same loop.
 """
 
 from __future__ import annotations
@@ -122,6 +125,7 @@ class Conversation:
         self.history: list[dict] = []
         self.turns: list[dict] = []
         self.lock = contextlib.nullcontext()            # the viewer's lock: the model thinks in another thread
+        self.voice = self.ears = None                   # eleven.Voice / eleven.Ears: speak and listen (--voz)
         behavior.pet.conversation = self
 
     def hear(self, text: str) -> str:
@@ -156,32 +160,41 @@ class Conversation:
     def _think(self, text: str, called: list) -> str:
         if self.model is None:
             raise RuntimeError("no model")
+        state = {"moved": False, "done": set(), "said": []}
+
+        def call(name: str, args: dict) -> str:
+            return self._call(name, args, state, called)
+
+        if hasattr(self.model, "turn"):     # a model that keeps the dialogue itself (the ElevenLabs agent, eleven.py)
+            reply = self.model.turn(text, self._context(), call)
+            return reply.strip() or " ".join(state["said"]) or "Hum?"
         messages = [{"role": "system", "content": PERSONA},
                     *self.history[-HISTORY:],
                     {"role": "user", "content": f"[o que você sabe agora: {self._context()}]\n{text}"}]
-        moved, done = False, set()
-        said = []
         for _ in range(MAX_ROUNDS):
             msg = self.model.chat(messages, tool_schemas())
             calls = msg.get("tool_calls") or []
             if not calls:
-                return (msg.get("content") or "").strip() or " ".join(said) or "Hum?"
+                return (msg.get("content") or "").strip() or " ".join(state["said"]) or "Hum?"
             messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": calls})
-            for call in calls:
-                name, args = call["function"]["name"], call["function"].get("arguments") or {}
-                if isinstance(args, str):
-                    args = json.loads(args or "{}")
-                key = (name, json.dumps(args, sort_keys=True))
-                if key in done:                         # small models repeat a call after its result: once is enough
-                    messages.append({"role": "tool", "content": "(já feito)", "tool_name": name})
-                    continue
-                done.add(key)
-                result = self._run(name, args, queue=moved and name in MOVING)
-                moved = moved or name in MOVING
-                called.append(f"{name}({', '.join(str(v) for v in args.values())})")
-                said.append(result)
-                messages.append({"role": "tool", "content": result, "tool_name": name})
-        return " ".join(said)
+            for c in calls:
+                name, args = c["function"]["name"], c["function"].get("arguments") or {}
+                messages.append({"role": "tool", "content": call(name, args), "tool_name": name})
+        return " ".join(state["said"])
+
+    def _call(self, name: str, args, state: dict, called: list) -> str:
+        """One tool call of the model: run it (a move after another one this turn waits in the queue)."""
+        if isinstance(args, str):
+            args = json.loads(args or "{}")
+        key = (name, json.dumps(args, sort_keys=True))
+        if key in state["done"]:                        # small models repeat a call after its result: once is enough
+            return "(já feito)"
+        state["done"].add(key)
+        result = self._run(name, args, queue=state["moved"] and name in MOVING)
+        state["moved"] = state["moved"] or name in MOVING
+        called.append(f"{name}({', '.join(str(v) for v in args.values())})")
+        state["said"].append(result)
+        return result
 
     def _run(self, name: str, args: dict, queue: bool) -> str:
         if name not in TOOLS:
@@ -214,17 +227,17 @@ DIALOGUE = [
 ]
 
 
-def run_dialogue(model_name: str, think: bool = False, memory_dir: Path = beh.MEMORY_DIR, **opts) -> int:
+def run_dialogue(model, label: str, memory_dir: Path = beh.MEMORY_DIR, **opts) -> int:
     pet = petlib.Pet(**opts)
     pet.person.place(1.5, -0.6, math.pi)
     memory = WorldMemory.load(memory_dir / "memory.json", t0=60.0) if (memory_dir / "memory.json").exists() else None
     if memory is not None:
         pet.perception.load_map(memory_dir / "map.npz")
     b = beh.Behavior(pet, memory, autonomy=False)
-    conv = Conversation(b, Ollama(model_name, think))
+    conv = Conversation(b, model)
     pet.run(1.0)
     ok = 0
-    print(f"model {model_name}{' (thinking)' if think else ''}, "
+    print(f"model {label}, "
           f"{'memory from ' + str(memory_dir) if memory else 'no memory'}")
     for text, right, seconds in DIALOGUE:
         reply = conv.hear(text)
@@ -242,13 +255,26 @@ def run_dialogue(model_name: str, think: bool = False, memory_dir: Path = beh.ME
           f"{sum(t['seconds'] for t in conv.turns if t['path'] == 'model'):.0f} s in "
           f"{sum(t['path'] == 'model' for t in conv.turns)} turns")
     pet.close()
+    if hasattr(model, "close"):
+        model.close()
     return 0
+
+
+def make_model(args):
+    if args.brain == "elevenlabs":
+        import eleven
+        return eleven.Agent(), f"ElevenLabs agent ({eleven.load_agent()['llm']})"
+    return Ollama(args.model, args.think), f"{args.model}{' (thinking)' if args.think else ''}"
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--test", action="store_true")
+    ap.add_argument("--brain", choices=("ollama", "elevenlabs"), default="ollama",
+                    help="the language model: a local one (Ollama) or the ElevenLabs agent (eleven.py --setup first)")
     ap.add_argument("--model", default=MODEL, help="an Ollama model with tool calling")
+    ap.add_argument("--voz", action="store_true",
+                    help="viewer: Enter (empty line) starts and stops the microphone, the Cogu speaks (ElevenLabs)")
     ap.add_argument("--think", action="store_true", help="let a qwen3 model think first (it needs it to call tools)")
     ap.add_argument("--perception", choices=("phone", "true"), default="phone")
     ap.add_argument("--memory", default=None, metavar="DIR", help="load memory.json and map.npz from DIR first")
@@ -256,14 +282,22 @@ def main(argv=None) -> int:
     ap.add_argument("--speed", type=float, default=1.0)
     args = ap.parse_args(argv)
     opts = dict(perception=args.perception)
+    try:
+        model, label = make_model(args)
+    except RuntimeError as e:                           # (no ElevenLabs agent yet)
+        print(f"  {e}")
+        return 1
     if args.test:
-        return run_dialogue(args.model, args.think, Path(args.memory) if args.memory else beh.MEMORY_DIR, **opts)
+        return run_dialogue(model, label, Path(args.memory) if args.memory else beh.MEMORY_DIR, **opts)
     pet = petlib.Pet(**opts)
     memory = None
     if args.memory:
         memory = WorldMemory.load(Path(args.memory) / "memory.json", t0=3600.0)
         pet.perception.load_map(Path(args.memory) / "map.npz")
-    Conversation(beh.Behavior(pet, memory, autonomy=not args.no_autonomy), Ollama(args.model, args.think))
+    conv = Conversation(beh.Behavior(pet, memory, autonomy=not args.no_autonomy), model)
+    if args.voz:
+        import eleven
+        conv.voice, conv.ears = eleven.Voice(), eleven.Ears()
     return petlib.run_viewer(pet, args.speed)
 
 

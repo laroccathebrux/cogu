@@ -274,7 +274,7 @@ Em todos, nenhuma queda nem toque, e as frases fixas ("pare", "onde fica a mesa?
 conclusão por enquanto é que um modelo do tamanho do da Apple conversa bem, mas não é confiável para escolher
 ferramentas em frases livres. Para agir, as frases fixas e um modelo maior na nuvem continuam necessários; é isso que
 o ADR-004 já previa (local primeiro, nuvem quando o local ficar ruim). O teste fica como régua para comparar o modelo
-da Apple quando ele estiver pronto, e o da ElevenLabs quando houver chave.
+da Apple quando ele estiver pronto e o agente da ElevenLabs (abaixo).
 
 ```bash
 uv run python sim/brain/conversation.py --test                         # o diálogo com o qwen2.5:3b
@@ -284,11 +284,52 @@ uv run mjpython sim/brain/conversation.py --memory build/brain_memory  # viewer:
 
 No viewer o modelo pensa numa thread separada, e o robô continua andando enquanto isso.
 
+### ElevenLabs: o modelo na nuvem, o ouvido e a voz
+
+`eleven.py` liga a ElevenLabs em volta do mesmo laço, em três peças:
+
+- **Agente** (`--brain elevenlabs`): o LLM da plataforma de agentes da ElevenLabs no lugar do modelo local.
+  - `--setup` cria o agente com a mesma persona e as ferramentas do Cogu como *ferramentas do cliente*: o modelo pede
+    uma ferramenta, este programa (no celular, o app) a executa e devolve o resultado. O modelo nunca chega no motor.
+  - Modelo padrão: Claude Haiku 5.5, rápido para conversar (`--llm` troca).
+  - Só texto: o áudio não é cobrado, porque a voz é a peça abaixo. Antes de cada fala, o resumo da memória vai como
+    atualização de contexto, e o histórico da conversa fica no agente.
+- **Ouvido** (`--voz`): microfone (ffmpeg) → Scribe v2. Para falar, aperte Enter numa linha vazia; outro Enter para.
+  As frases fixas continuam sendo reconhecidas localmente no texto transcrito, então "pare" não espera o modelo, só
+  a transcrição. No celular quem ouve o "pare" é o reconhecimento de fala do aparelho (ADR-004, item 6).
+- **Voz** (`--voz`): eleven_flash_v2_5 (~0,1 s, fala português) → alto-falante (afplay), em ordem, numa thread. Fala
+  tudo o que o Cogu diz, inclusive o que vem da autonomia ("achei você").
+
+O ouvido e a voz servem para qualquer cérebro, inclusive o modelo local. A chave vem só do ambiente
+(`ELEVENLABS_API_KEY`); `build/elevenlabs/agent.json` guarda os ids do agente e das ferramentas, sem a chave.
+
+```bash
+export ELEVENLABS_API_KEY=...                                       # a sua chave, no seu terminal
+uv run python sim/brain/eleven.py --voices                          # as vozes da conta
+uv run python sim/brain/eleven.py --setup --voice <id>              # cria ou atualiza o agente
+uv run python sim/brain/eleven.py --say "Oi, eu sou o Cogu!"        # ouvir a voz
+uv run python sim/brain/eleven.py --listen                          # testar o microfone e o Scribe
+uv run python sim/brain/conversation.py --test --brain elevenlabs   # o diálogo de 9 falas com o agente
+uv run mjpython sim/brain/conversation.py --brain elevenlabs --voz --memory build/brain_memory   # viewer por voz
+uv run python sim/brain/eleven.py --selftest                        # o cliente contra uma ElevenLabs falsa, sem chave
+```
+
+O microfone padrão é o embutido do Mac. `COGU_MIC=":2"` escolhe outro (por exemplo o HyperX); a lista sai de
+`ffmpeg -f avfoundation -list_devices true -i ""`. Sem a chave, o teste com o servidor falso faz o diálogo inteiro
+pelo mesmo protocolo: 9 de 9, cinco resultados de ferramenta devolvidos, uma atualização de contexto antes de cada
+fala, e um "ping" respondido. O falso só confere o encanamento; a qualidade do modelo de verdade ainda não foi medida.
+
 Revisável:
 - frases fixas só até 4 palavras: frases maiores com uma palavra de comando ("vem comigo" no fim) dependem do
   modelo;
 - o modelo do simulador é um substituto. A escolha real, Apple no aparelho mais ElevenLabs na nuvem, é medida com
   este mesmo diálogo.
+- por voz, "pare" espera a transcrição do Scribe (meio segundo a um segundo): no simulador não há reconhecimento no
+  aparelho;
+- falar por Enter (aperte para falar) em vez de microfone sempre aberto: o agente de voz completo da ElevenLabs
+  (áudio direto, com detecção de fala) pularia as frases fixas locais;
+- o fim de uma resposta do agente é detectado por 0,8 s sem mensagens depois da última resposta (e esperando a
+  resposta que vem depois de cada ferramenta).
 
 ## Próximos passos
 
@@ -297,5 +338,5 @@ Revisável:
 2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
 3. ~~Memória do mundo e motor de comportamento.~~ Feito (acima).
 4. ~~Conversa por cima, chamando as mesmas ferramentas.~~ O laço está feito (acima), com um modelo local do Ollama.
-   Falta ligar o modelo da Apple (quando o Apple Intelligence terminar de baixar) e a ElevenLabs (voz e LLM; precisa
-   da conta e da chave).
+   A ElevenLabs (agente, ouvido e voz) está ligada e testada contra um servidor falso; falta rodar com a chave da
+   conta e medir. Falta também o modelo da Apple (quando o Apple Intelligence terminar de baixar).
