@@ -316,6 +316,7 @@ uv run python sim/brain/eleven.py --setup --voice <id>              # cria ou at
 uv run python sim/brain/eleven.py --say "Oi, eu sou o Cogu!"        # ouvir a voz
 uv run python sim/brain/eleven.py --listen                          # testar o microfone e o Scribe
 uv run python sim/brain/conversation.py --test --brain elevenlabs   # o diálogo de 9 falas com o agente
+uv run python sim/brain/conversation.py --test --hard --brain elevenlabs   # o diálogo difícil, de 10
 uv run mjpython sim/brain/conversation.py --brain elevenlabs --voz --memory build/brain_memory   # viewer por voz
 uv run python sim/brain/eleven.py --selftest                        # o cliente contra uma ElevenLabs falsa, sem chave
 ```
@@ -323,15 +324,55 @@ uv run python sim/brain/eleven.py --selftest                        # o cliente 
 O microfone padrão é o embutido do Mac. `COGU_MIC=":2"` escolhe outro (por exemplo o HyperX); a lista sai de
 `ffmpeg -f avfoundation -list_devices true -i ""`. Sem a chave, o teste com o servidor falso faz o diálogo inteiro
 pelo mesmo protocolo: 9 de 9, cinco resultados de ferramenta devolvidos, uma atualização de contexto antes de cada
-fala, e um "ping" respondido. O falso só confere o encanamento; a qualidade do modelo de verdade ainda não foi medida.
+fala, e um "ping" respondido. O falso só confere o encanamento.
+
+**Com a conta de verdade** (2026-11-03): agente "Cogu" criado na conta, voz Michelle (jovem, brasileira, "fofa"; a
+voz "Alessandros Voice" da conta não foi usada). Além do diálogo de 9 falas, há um mais difícil, `--hard`, com 10:
+
+- ações depois de andar ("vai até a porta e depois senta lá");
+- um lugar que ele não conhece ("vai pro quarto");
+- dar nome a um lugar ("aqui é o cantinho da planta");
+- o que ele vê agora;
+- perguntas que se respondem pelo contexto.
+
+| Modelo | Diálogo de 9 | Difícil, de 10 | Primeiras palavras | O que errou |
+|---|---|---|---|---|
+| qwen2.5:3b local | 6 a 7 | 5 | ~1 s | ferramentas a mais ou nenhuma; não dá nome ao lugar |
+| Claude Haiku 5.5 (agente) | 8, 9 e 9 | 7, 9 e 9 | 1,1–1,6 s (máx. 3 s) | "vai pro quarto": chamou procurar, livre e parar, sem saber o que fazer (uma vez); "vai pra cozinha": deu o nome cozinha ao canto do sofá por conta própria (uma vez, antes do bloqueio abaixo) |
+| Claude Sonnet 5.5 (agente) | 9 | 9 | 1,6–1,8 s (máx. 2,8 s) | "vai pro quarto": chamou ir_ate(quarto), que respondeu que não conhece |
+
+Em nenhuma rodada houve queda nem toque. O Haiku ficou como padrão: acerta quase tanto quanto o Sonnet e responde
+mais rápido. O tempo por fala inclui os 0,8 s que o programa espera para saber que a resposta acabou.
+
+Correções que as rodadas pediram:
+
+- **dar nome a um lugar** só quando a fala tem "aqui": o programa recusa o lembrar_lugar sem isso, porque o Haiku
+  chamou um canto da sala de "cozinha" por conta própria;
+- **posturas depois de um movimento** entram na fila: "vai até a porta e depois senta" senta na porta, não no
+  caminho;
+- **uma ordem nova** limpa o que estava na fila;
+- **a persona** diz para não acrescentar ferramentas que a pessoa não pediu ("volta pro corredor" não é ir_ate mais
+  vir) e para não dizer que está indo sem ter chamado a ferramenta.
+
+**Voz e ouvido**, medidos com 11 comandos falados pela própria voz do Cogu e transcritos pelo Scribe:
+
+- o áudio sai em ~0,3 s;
+- a transcrição volta em ~0,5 s;
+- 11 de 11 viraram o comando certo.
+
+Sem dicas de vocabulário, "Cogu, pare!" voltou como "Cogupari", e o pare se perdia. Agora o Scribe recebe as
+palavras do Cogu como dicas (`keyterms`: Cogu, pare, fica, vem, ...), o que custa 20 % a mais na transcrição. As
+frases fixas também aceitam "cogu" grudado na palavra seguinte. O microfone e o viewer com `--voz` ainda não foram
+testados com uma pessoa falando de verdade.
 
 Revisável:
 - frases fixas só até 4 palavras: frases maiores com uma palavra de comando ("vem comigo" no fim) dependem do
   modelo;
 - o modelo do simulador é um substituto. A escolha real, Apple no aparelho mais ElevenLabs na nuvem, é medida com
   este mesmo diálogo.
-- por voz, "pare" espera a transcrição do Scribe (meio segundo a um segundo): no simulador não há reconhecimento no
-  aparelho;
+- por voz, "pare" espera a transcrição do Scribe (~0,5 s): no simulador não há reconhecimento no aparelho;
+- Haiku 5.5 como padrão, no lugar do Sonnet 5.5 (que acerta um pouco mais e demora ~0,5 s a mais);
+- a voz Michelle (`eleven.py --setup --voice <id>` troca; `--voices` lista);
 - falar por Enter (aperte para falar) em vez de microfone sempre aberto: o agente de voz completo da ElevenLabs
   (áudio direto, com detecção de fala) pularia as frases fixas locais;
 - o fim de uma resposta do agente é detectado por 0,8 s sem mensagens depois da última resposta (e esperando a
@@ -344,5 +385,5 @@ Revisável:
 2. ~~Percepção só pela câmera e pelo LiDAR simulados: mapa de obstáculos, pessoa, bola.~~ Feito (acima).
 3. ~~Memória do mundo e motor de comportamento.~~ Feito (acima).
 4. ~~Conversa por cima, chamando as mesmas ferramentas.~~ O laço está feito (acima), com um modelo local do Ollama.
-   A ElevenLabs (agente, ouvido e voz) está ligada e testada contra um servidor falso; falta rodar com a chave da
-   conta e medir. Falta também o modelo da Apple (quando o Apple Intelligence terminar de baixar).
+   A ElevenLabs (agente, ouvido e voz) está ligada e medida com a conta (acima). Falta conversar por voz de verdade
+   no viewer e o modelo da Apple (quando o Apple Intelligence terminar de baixar).

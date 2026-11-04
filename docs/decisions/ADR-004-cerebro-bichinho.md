@@ -71,9 +71,14 @@ Falta decidir o que o celular faz: o que o Cogu é, o que ele percebe, como pens
   medida no simulador (2026-11-03, `sim/brain/conversation.py`): um modelo de 3B, do tamanho do da Apple, responde
   em ~1 s, mas escolhe as ferramentas mal em frases livres (6 de 9). Modelos de 8B e 35B escolhem melhor, mas são
   lentos demais rodando no mesmo Mac. As frases fixas continuam sem LLM.
-  A ligação com a ElevenLabs está pronta e testada contra um servidor falso (`sim/brain/eleven.py`): o agente usa
-  Claude Haiku 5.5, as ferramentas do Cogu como ferramentas do cliente e só texto; a voz é o eleven_flash_v2_5 e o
-  ouvido é o Scribe v2. Falta medir com a chave da conta.
+  Na nuvem, pelo agente da ElevenLabs (`sim/brain/eleven.py`, 2026-11-03), com as ferramentas do Cogu como
+  ferramentas do cliente:
+  - Claude Haiku 5.5 acerta 9 de 9 e 9 de 10 num diálogo mais difícil, com as primeiras palavras em ~1,1–1,6 s;
+  - o Sonnet 5.5 acerta o mesmo e demora ~0,5 s a mais;
+  - o 3B local acerta 5 de 10 no difícil.
+
+  Fica o Haiku na nuvem. A voz (eleven_flash_v2_5, ~0,3 s) e o ouvido (Scribe v2, ~0,5 s, com as palavras do Cogu
+  como dicas) também estão ligados.
 - Bola: tamanho 5 (22 cm, ~430 g) é o pedido; no treino também 3 e 4. O Cogu tem ~40 cm de altura (câmera a 38,6 cm).
 
 ## Consequências

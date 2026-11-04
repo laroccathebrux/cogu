@@ -55,6 +55,8 @@ VOICE = "cjVigY5qzO86Huf0OWal"  # the agents platform's default voice, until --v
 TTS_MODEL = "eleven_flash_v2_5"  # ~0.1 s, 32 languages (eleven_v4_turbo: as fast, more expressive, pricier)
 STT_MODEL = "scribe_v2"
 LANGUAGE = "pt"
+KEYTERMS = ["Cogu", "pare", "fica", "vem", "siga", "senta", "deita", "levanta", "bola"]   # Scribe hears these
+# better (without them "Cogu, pare!" came back "Cogupari"); +20 % on the transcription's price
 QUIET = 0.8           # s without news after the agent's answer: the turn is over
 TURN_TIMEOUT = 30.0   # s for the agent's answer (then: "Agora não consigo pensar")
 
@@ -176,6 +178,7 @@ class Agent:
         self.inbox: queue.Queue = queue.Queue()
         self.lock = threading.Lock()
         self.conversation_id = None
+        self.first: list[float] = []                     # per turn: seconds to the agent's first words
 
     # the connection: a reader thread answers the pings at once and queues the rest
     def connect(self):
@@ -261,6 +264,8 @@ class Agent:
             if kind == "tool":
                 waiting_tool, last = True, time.monotonic()
             elif kind == "answer":
+                if len(replies) == 1:
+                    self.first.append(time.monotonic() - start)
                 waiting_tool, last = False, time.monotonic()
         return " ".join(r for r in replies if r)
 
@@ -355,8 +360,9 @@ class Ears:
     def transcribe(self, path: Path) -> str:
         t0 = time.perf_counter()
         with open(path, "rb") as f:
-            r = self.api.post("/v1/speech-to-text", data={"model_id": STT_MODEL, "language_code": LANGUAGE},
-                              files={"file": ("fala.wav", f, "audio/wav")}, timeout=60)
+            r = self.api.post("/v1/speech-to-text", data={"model_id": STT_MODEL, "language_code": LANGUAGE,
+                                                          "tag_audio_events": "false", "keyterms": KEYTERMS},
+                              files={"file": (Path(path).name, f)}, timeout=60)
         self.seconds.append(time.perf_counter() - t0)
         return (r.get("text") or "").strip()
 

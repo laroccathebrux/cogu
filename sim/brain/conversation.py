@@ -55,6 +55,7 @@ movimento, então diga que está indo, nunca que já chegou.
 Quando a pessoa disser "vem comigo" ou "me acompanha", use a ferramenta seguir; "descansa", a ferramenta sentar. \
 Para várias ações seguidas, chame todas as ferramentas, na ordem, na mesma resposta (para "vai até o sofá e depois \
 volta aqui", chame ir_ate com alvo sofá e depois vir). Nunca escreva o nome de uma ferramenta na resposta: chame-a.
+Chame só o que a pessoa pediu nesta fala, nada a mais: "volta pro corredor" é só ir_ate corredor (vir só quando ela pedir para você vir até ela). Se não conhece o lugar pedido, não chame nenhuma ferramenta. Diga que está indo só se chamou ir_ate, vir ou seguir nesta mesma fala.
 Responda sobre onde estão as coisas com o que está no contexto (o que você sabe). Não invente coisas nem lugares que \
 não estão nele: se não sabe onde fica um lugar, diga e peça para te mostrarem ("me leva lá e diz 'aqui é ...'").
 Você não tem mãos, não sobe em móveis e não pula: se pedirem, explique com carinho."""
@@ -73,16 +74,20 @@ TOOLS = {   # name: (description, {argument: description})
     "levantar": ("Levanta (de sentado ou deitado).", {}),
     "onde_esta": ("Diz onde está uma coisa ou lugar, pela memória.", {"coisa": "o nome, sem artigo"}),
     "o_que_vejo": ("Diz o que a câmera está vendo agora.", {}),
-    "lembrar_lugar": ("Dá um nome ao lugar onde você está agora (quando a pessoa diz 'aqui é ...').",
+    "lembrar_lugar": ("Dá um nome ao lugar onde você está agora. Só quando a pessoa disser 'aqui é ...' nesta fala; "
+                      "nunca por conta própria.",
                       {"nome": "o nome do lugar, sem artigo"}),
 }
 MOVING = ("vir", "seguir", "procurar", "ir_ate")
+ACTIONS = MOVING + ("ficar", "livre", "sentar", "deitar", "levantar")   # after a move in the same turn: queued
 
 
 def local_command(text: str) -> tuple[str, str | None] | None:
     """A short fixed phrase (behavior.parse) is run without the model; a longer sentence goes to the model even if
     it has a command word in it ("vai até o sofá e depois volta aqui" is not "vem"), except a stop."""
-    words = [w for w in plain(text).replace(",", " ").replace("!", " ").replace("?", " ").split() if w != "cogu"]
+    words = [w.removeprefix("cogu") if len(w) > 6 else w      # (speech to text glued "Cogu, pare" once: "cogupari")
+             for w in plain(text).replace(",", " ").replace("!", " ").replace("?", " ").replace(".", " ").split()
+             if w != "cogu"]
     cmd = beh.parse(" ".join(words))
     if cmd is None:
         return None
@@ -160,7 +165,7 @@ class Conversation:
     def _think(self, text: str, called: list) -> str:
         if self.model is None:
             raise RuntimeError("no model")
-        state = {"moved": False, "done": set(), "said": []}
+        state = {"moved": False, "done": set(), "said": [], "text": text}
 
         def call(name: str, args: dict) -> str:
             return self._call(name, args, state, called)
@@ -190,7 +195,9 @@ class Conversation:
         if key in state["done"]:                        # small models repeat a call after its result: once is enough
             return "(já feito)"
         state["done"].add(key)
-        result = self._run(name, args, queue=state["moved"] and name in MOVING)
+        if name == "lembrar_lugar" and "aqui" not in plain(state["text"]).split():   # (a model named the sofa
+            return "(não: só quando a pessoa disser 'aqui é ...')"                       # corner "cozinha" alone)
+        result = self._run(name, args, queue=state["moved"] and name in ACTIONS)
         state["moved"] = state["moved"] or name in MOVING
         called.append(f"{name}({', '.join(str(v) for v in args.values())})")
         state["said"].append(result)
@@ -206,6 +213,8 @@ class Conversation:
             if queue:                                   # after another move this turn: when that one ends
                 self.behavior.queue.append((name, values))
                 return f"(depois que eu terminar: {name} {' '.join(values)})".strip()
+            if name in ACTIONS or name == "parar":      # a new order replaces what was lined up
+                self.behavior.queue.clear()
             return fn(*values)
 
     def _remember(self, text: str, reply: str):
@@ -227,7 +236,22 @@ DIALOGUE = [
 ]
 
 
-def run_dialogue(model, label: str, memory_dir: Path = beh.MEMORY_DIR, **opts) -> int:
+# harder: actions after a move, places it must not invent, questions to answer from the context
+DIALOGUE_HARD = [
+    ("Cogu, vai até a porta e depois senta lá", [{"ir_ate(porta)", "sentar()"}], 40.0),
+    ("Levanta, vamos brincar mais um pouco", [{"levantar()"}, {"levantar()", "ir_ate(bola)"}], 4.0),
+    ("Você lembra onde eu deixei a bola?", [set(), {"onde_esta(bola)"}], 1.0),
+    ("Me leva até a planta, quero ver se precisa de água", [{"ir_ate(planta)"}], 30.0),
+    ("Aqui é o cantinho da planta", [{"lembrar_lugar(cantinho da planta)"}, {"lembrar_lugar(cantinho)"}], 1.0),
+    ("O que você tá vendo na sua frente agora?", [{"o_que_vejo()"}], 1.0),
+    ("Fica aí quietinho que eu já volto", [{"ficar()"}, {"parar()"}], 2.0),
+    ("Quantas pernas você tem?", [set()], 1.0),
+    ("Vai pro quarto e me espera lá", [set()], 1.0),
+    ("Volta pro corredor, por favor", [{"ir_ate(corredor)"}], 30.0),
+]
+
+
+def run_dialogue(model, label: str, memory_dir: Path = beh.MEMORY_DIR, dialogue=None, **opts) -> int:
     pet = petlib.Pet(**opts)
     pet.person.place(1.5, -0.6, math.pi)
     memory = WorldMemory.load(memory_dir / "memory.json", t0=60.0) if (memory_dir / "memory.json").exists() else None
@@ -239,7 +263,8 @@ def run_dialogue(model, label: str, memory_dir: Path = beh.MEMORY_DIR, **opts) -
     ok = 0
     print(f"model {label}, "
           f"{'memory from ' + str(memory_dir) if memory else 'no memory'}")
-    for text, right, seconds in DIALOGUE:
+    dialogue = dialogue or DIALOGUE
+    for text, right, seconds in dialogue:
         reply = conv.hear(text)
         turn = conv.turns[-1]
         good = {plain(c) for c in turn["tools"]} in [{plain(c) for c in r} for r in right]
@@ -251,9 +276,11 @@ def run_dialogue(model, label: str, memory_dir: Path = beh.MEMORY_DIR, **opts) -
             beh.until(pet, lambda p: not b.queue and p.brain.mode not in ("ir", "vem"), 40.0)
         if turn["tools"]:
             print(f"    (then: {pet.brain.said}; {pet.distance():.2f} m from the person)")
-    print(f"  {ok}/{len(DIALOGUE)} as expected; falls {pet.falls}, bumps {pet.bumps}; model time "
+    print(f"  {ok}/{len(dialogue)} as expected; falls {pet.falls}, bumps {pet.bumps}; model time "
           f"{sum(t['seconds'] for t in conv.turns if t['path'] == 'model'):.0f} s in "
-          f"{sum(t['path'] == 'model' for t in conv.turns)} turns")
+          f"{sum(t['path'] == 'model' for t in conv.turns)} turns"
+          + (f"; first words after {sum(model.first) / len(model.first):.1f} s (mean), "
+             f"{max(model.first):.1f} s (max)" if getattr(model, "first", None) else ""))
     pet.close()
     if hasattr(model, "close"):
         model.close()
@@ -278,6 +305,7 @@ def main(argv=None) -> int:
     ap.add_argument("--think", action="store_true", help="let a qwen3 model think first (it needs it to call tools)")
     ap.add_argument("--perception", choices=("phone", "true"), default="phone")
     ap.add_argument("--memory", default=None, metavar="DIR", help="load memory.json and map.npz from DIR first")
+    ap.add_argument("--hard", action="store_true", help="--test: the harder dialogue (DIALOGUE_HARD)")
     ap.add_argument("--no-autonomy", action="store_true")
     ap.add_argument("--speed", type=float, default=1.0)
     args = ap.parse_args(argv)
@@ -288,7 +316,8 @@ def main(argv=None) -> int:
         print(f"  {e}")
         return 1
     if args.test:
-        return run_dialogue(model, label, Path(args.memory) if args.memory else beh.MEMORY_DIR, **opts)
+        return run_dialogue(model, label, Path(args.memory) if args.memory else beh.MEMORY_DIR,
+                            DIALOGUE_HARD if args.hard else DIALOGUE, **opts)
     pet = petlib.Pet(**opts)
     memory = None
     if args.memory:
