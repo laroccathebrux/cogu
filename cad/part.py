@@ -114,7 +114,7 @@ def m3_clearance_cutter(loc: Location, length: float) -> Part:
 
 
 def bearing_seat_cutter(loc: Location, bearing: P.Bearing = P.BEARING_688, through_hole: float = 9.0) -> Part:
-    """Pocket for a 688ZZ: Ø16.2 × 5 deep from the surface, plus a Ø9 through-hole for the stub."""
+    """Pocket for a 688ZZ: Ø(16 + CLEARANCE_TIGHT) × 5 deep from the surface, plus a Ø9 through-hole for the stub."""
     seat = Cylinder(bearing.seat_diameter / 2, bearing.width,
                     align=(Align.CENTER, Align.CENTER, Align.MIN))
     through = Cylinder(through_hole / 2, bearing.width + 20,
