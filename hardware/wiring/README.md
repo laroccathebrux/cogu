@@ -1,6 +1,18 @@
 # Cabos do Cogu: análise de passagem (2026-10-30)
 
-Estado: **análise; no CAD, só o roll foi resolvido (A1, 2026-10-30).** As decisões em aberto estão no fim.
+Estado: **no CAD (2026-11-12).** O roll foi resolvido em 30/10 (A1). Em 12/11 entraram as janelas e o bolso da coxa,
+da canela e do pitch (item 3, B), a janela dos yaw no tambor e no berço (C), a canaleta do pé (item 4) e a placa
+da IMU. O que fica para a bancada está em "A conferir no hardware".
+
+Com as peças novas (`analise/headroom2.py`), a própria peça não cobre mais nenhum ponto dos soquetes em nenhum
+servo, e o que se move na frente deles é:
+
+| Servo | Livre na frente dos soquetes |
+|---|---|
+| yaw | janela no tampo do tambor e na base do berço: mais de 14 mm até qualquer coisa |
+| roll | 14,6 mm em todo o curso (A1) |
+| pitch | soquete de cima livre sempre; o de baixo fica com 8,6 mm com o pitch de +10 a +15° (B) |
+| joelho, tornozelo | livre, menos o milímetro mais perto do eixo (a borda do disco da peça de baixo, a 8,6 mm) |
 
 ## O que precisa de fio
 
@@ -66,9 +78,10 @@ canal.
    | chaves do pé → tornozelo | tornozelo | — | ~95 mm, depois ~340 mm junto com o feixe até a placa (~430 mm) |
 
    A rota esquemática é uma estimativa. O comprimento de verdade sai com barbante no protótipo em PLA laranja.
-3. **Coxa e canela:** uma janela na parede traseira, sobre os soquetes, e um canal na bochecha traseira que sobe
+3. **Coxa e canela** (feito: janela na parede e um bolso de 22 × 10 × 8 mm na bochecha traseira, aberto para fora,
+   em vez do canal; o canal antigo do topo saiu): uma janela na parede traseira, sobre os soquetes, e um canal na bochecha traseira que sobe
    até a junta de cima e sai pela face externa. Carrega 1 cabo de servo e o par do pé (5 fios).
-4. **Pé:** o que já foi proposto ([folga_pe_tornozelo.png](folga_pe_tornozelo.png)). As chaves ficam em paralelo,
+4. **Pé** (feito, 2,5 × 1,5 mm; a canaleta sobe pela face de fora do paddle até 9,5 mm do eixo): o que já foi proposto ([folga_pe_tornozelo.png](folga_pe_tornozelo.png)). As chaves ficam em paralelo,
    ligadas por uma canaleta de 2,5 × 1,5 mm no topo da sola (sob o eixo sobram só 2,5 mm até a canela). Em
    x = 0, uma canaleta e um túnel levam os fios à face externa do paddle do rolamento, e eles sobem até r ≈ 9 mm
    do eixo. Os terminais da chave de trás são cortados para ~2 mm: sobram 4,8 mm ali.
@@ -95,12 +108,13 @@ canal.
   anda igual no modelo novo (`gait_metrics`: 23 passos, 46/49 % no ar, pé a 26,3/24,2 mm contra 26,3/24,3).
 - 6 mm é estimativa: revisar quando o plugue for medido.
 
-**B. Pitch: um dos soquetes fica coberto com a coxa toda à frente.**
+**B. Pitch: um dos soquetes fica coberto com a coxa toda à frente.** A viga tem a janela (12/11). Na bancada: se o
+plugue encaixado mais a curva passar de 8,6 mm, B1.
 - B1: usar só o soquete livre, com um cabo em Y (os dois soquetes são o mesmo barramento, então um plugue com
   dois cabos emendados serve de entrada e saída).
 - B2: limitar o pitch a ≤ −5° à frente. Antes, ver no log da política quanto ela usa de fato.
 
-**C. Yaw: 8,2 mm até o tampo do tambor.** Abrir uma janela no tampo e na base do berço sobre os conectores de
+**C. Yaw: 8,2 mm até o tampo do tambor. Feito (12/11):** `parameters.YAW_PLUG_WINDOW`, x −18…−10,5, y ±8,9…31,1. Abrir uma janela no tampo e na base do berço sobre os conectores de
 cada yaw, juntando-a ao furo dos cabos da placa. Os insertos do berço (x = −14 e 0, y = 0) ficam entre as duas
 janelas. Embaixo do celular sobram ~17 mm.
 

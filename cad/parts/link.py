@@ -112,10 +112,12 @@ def bearing_paddle_cutter(y_inner: float, z_axis: float) -> Part:
 # ---------------------------------------------------------------------------
 
 CHEEK_Z0 = 14.0   # cheeks start above the distal paddle sweep (radius 12.6) + clearance
+PLUG_POCKET_HALF_X = S.bus_socket_half_width + 1.0   # 11.1 of the cheek's 15.06: two 4 mm side strips stay
+PLUG_POCKET_Z1 = CHEEK_Z0 + 8.0 - 0.5                 # the bearing paddle starts at CHEEK_Z0 + 8
 
 
 def build_link(name: str, length: float) -> CoguPart:
-    housing, cutters = servo_housing()
+    housing, cutters = servo_housing(bus_window=True)
 
     # horn-side cheek: two strips beside the pocket mouth + the top cap, extended to the horn plate
     strip_w = K.HOUSING_X_HALF - (S.body_width / 2 + P.CLEARANCE_LOOSE)
@@ -138,10 +140,12 @@ def build_link(name: str, length: float) -> CoguPart:
 
     solid = housing + strips + top_cap + back_cheek + horn_pad + bear_pad
 
-    # cable channel: from the top of the pocket (servo connector end) up through the top cap
-    channel = Box(P.CABLE_CHANNEL_WIDTH + 4, P.CABLE_CHANNEL_DEPTH + 2, 30,
-                  align=(Align.CENTER, Align.CENTER, Align.MIN))
-    channel = channel.moved(Location((0, S.y_back_face / 2, pocket_top - 1)))
+    # The bus sockets are on the servo's back face, which looks outboard here (the bearing side): the window in the
+    # back wall (servo_housing) and this pocket through the back cheek give the plugs and their bend room, open to
+    # the outside of the leg; the lead then runs up the outer face to the joint above (hardware/wiring, "espinha de
+    # fora"). The pocket stops 0.5 mm under the bearing paddle's root, which stays whole.
+    plug_pocket = Box(2 * PLUG_POCKET_HALF_X, K.HOUSING_Y0 - K.BEARING_PLATE_Y0 + 1.1, PLUG_POCKET_Z1 - CHEEK_Z0 + 1.0,
+                      align=(Align.CENTER, Align.MAX, Align.MIN)).moved(Location((0, K.HOUSING_Y0 + 0.1, CHEEK_Z0 - 1.0)))
     # driver access holes through the back cheek for the upper pair of servo screws
     access = None
     for loc in sts3215.mount_hole_locations("back"):
@@ -152,7 +156,7 @@ def build_link(name: str, length: float) -> CoguPart:
         a = a.moved(Location((-z_s, K.HOUSING_Y0 - 5, x_s)))
         access = a if access is None else access + a
 
-    all_cutters = cutters + channel + access \
+    all_cutters = cutters + plug_pocket + access \
         + horn_paddle_cutters(K.HORN_PLATE_Y0, K.HORN_PLATE_Y1, length) \
         + bearing_paddle_cutter(K.BEARING_PLATE_Y1, length)
     solid = solid - all_cutters

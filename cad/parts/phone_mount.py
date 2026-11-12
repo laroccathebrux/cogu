@@ -106,6 +106,18 @@ def cover_radius() -> float:
     return g["radius_xy"] * math.sqrt(max(0.0, 1.0 - u * u))
 
 
+def yaw_plug_windows() -> Part:
+    """Through the drum deck and the cradle base, over each yaw servo's bus sockets: the plugs stand up into it."""
+    x0, x1 = P.YAW_PLUG_WINDOW["x"]
+    y0, y1 = P.YAW_PLUG_WINDOW["y"]
+    out = None
+    for s in (1.0, -1.0):
+        w = Box(x1 - x0, y1 - y0, 30, align=(Align.MIN, Align.MIN, Align.CENTER)).moved(
+            Location((x0, y0 if s > 0 else -y1, P.COVER_TOP_Z)))
+        out = w if out is None else out + w
+    return out
+
+
 def build_hip_cover() -> CoguPart:
     w = P.COVER_WALL
     width = P.PELVIS_WIDTH
@@ -175,6 +187,14 @@ def build_hip_cover() -> CoguPart:
             Location((px, py, -1.0)))
         boss_room = c if boss_room is None else boss_room + c
     solid = solid + ((cage_out - cage_in) - boss_room)
+    # the IMU's plate, hanging from the deck at the rear (the board tapes onto its front face)
+    ip = P.IMU_PLATE
+    plate_x1 = P.IMU_POS[0] - P.IMU_BOARD["size"][0] / 2              # front face: the back of the board's envelope
+    plate = Box(ip["thickness"], ip["width"], DECK_UNDER_Z - ip["z0"] + 0.01,
+                align=(Align.MAX, Align.CENTER, Align.MIN)).moved(Location((plate_x1, 0, ip["z0"])))
+    rib = Box(6.0, 2.0, DECK_UNDER_Z - ip["z0"] + 0.01, align=(Align.MAX, Align.CENTER, Align.MIN)).moved(
+        Location((plate_x1 - ip["thickness"] + 0.01, 0, ip["z0"])))              # stiffener behind it
+    solid = solid + plate + rib
     cutters = cutters + window + lead
 
     # servo leads from the driver board, through the cradle tongue
@@ -183,6 +203,7 @@ def build_hip_cover() -> CoguPart:
     # cable pass from the cradle slot down into the cover, power switch through the left wall
     cutters = cutters + Box(2 * SLOT_HALF_X, P.CRADLE_CABLE_SLOT, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
         Location((P.PHONE_X, 0, P.COVER_TOP_Z)))
+    cutters = cutters + yaw_plug_windows()
     sw = P.COVER_SWITCH
     if sw:
         cutters = cutters + Cylinder(sw["d"] / 2, 10, rotation=(90, 0, 0)).moved(Location((sw["x"], width / 2, sw["z"])))
@@ -257,7 +278,7 @@ def build_phone_cradle() -> CoguPart:
         c = cb + th
         cutters = c if cutters is None else cutters + c
     cutters = cutters + Box(2 * SLOT_HALF_X, P.CRADLE_CABLE_SLOT, 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
-        Location((P.PHONE_X, 0, P.COVER_TOP_Z)))
+        Location((P.PHONE_X, 0, P.COVER_TOP_Z))) + yaw_plug_windows()
     solid = solid - cutters
     return CoguPart(
         name="phone_cradle",

@@ -160,7 +160,8 @@ def build_roll_link() -> CoguPart:
     front, rear, pcut = (s.rotate(Axis.Z, -90) for s in (front, rear, pcut))
 
     # pitch housing: housing frame (Y shaft, Z body, X across) -> roll frame (Y shaft, +X body, Z across)
-    housing, cutters = servo_housing(open_top=PITCH_HOUSING_OPEN)
+    # window over the pitch servo's bus sockets (they look outboard, at the thigh's bearing paddle)
+    housing, cutters = servo_housing(open_top=PITCH_HOUSING_OPEN, bus_window=True)
     housing = housing.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
     cutters = cutters.rotate(Axis.Y, 90).moved(Location((PITCH_AXIS_X, PITCH_AXIS_Y, PITCH_AXIS_Z)))
     # outboard bridge (-Y on the right leg) from the rear paddle to the front one, with a web into each paddle

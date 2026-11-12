@@ -44,6 +44,27 @@ def _oring_groove(x_centre: float) -> Part:
     return groove.moved(Location((x_centre, SOLE_CENTRE, -P.FOOT_HEIGHT - 1)))
 
 
+WIRE_W, WIRE_D = 2.5, 1.5        # channel for the switches' wires (28–30 AWG silicone), hardware/wiring item 4
+WIRE_TOP_R = 9.5                 # the outer-face groove stops this far below the ankle axis: the 688ZZ seat (r 8) is
+                                 # 5 mm deep from the inner face, the groove 1.5 from the outer one
+
+
+def switch_wire_channel(x_back: float, x_front: float, sole_top: float) -> Part:
+    """The two switches in parallel: a groove on top of the sole from one pocket to the other, a branch at the ankle
+    (x = 0) outboard under the fork, a tunnel through the bearing paddle's foot and a groove up its outer face, where
+    the pair joins the leg's bundle near the ankle axis."""
+    along = Box(x_front - x_back, WIRE_W, WIRE_D + 1.0, align=(Align.MIN, Align.CENTER, Align.MAX)).moved(
+        Location((x_back, SOLE_CENTRE, sole_top + 1.0)))
+    y_out = K.BEARING_PLATE_Y0 - 1.0
+    branch = Box(WIRE_W, SOLE_CENTRE - y_out, WIRE_D + 1.0, align=(Align.CENTER, Align.MAX, Align.MAX)).moved(
+        Location((0, SOLE_CENTRE + WIRE_W / 2, sole_top + 1.0)))
+    tunnel = Box(WIRE_W, (K.BEARING_PLATE_Y1 + 3.0) - y_out, WIRE_D + 2.5, align=(Align.CENTER, Align.MAX, Align.MIN)).moved(
+        Location((0, K.BEARING_PLATE_Y1 + 3.0, sole_top - WIRE_D)))
+    up = Box(WIRE_W, WIRE_D + 1.0, (-WIRE_TOP_R) - (sole_top - WIRE_D), align=(Align.CENTER, Align.MIN, Align.MIN)).moved(
+        Location((0, y_out, sole_top - WIRE_D)))
+    return along + branch + tunnel + up
+
+
 def build_foot() -> CoguPart:
     sole_z0 = -P.FOOT_HEIGHT
     sole = rounded_box(P.FOOT_LENGTH, P.FOOT_WIDTH, P.FOOT_SOLE_THICKNESS, P.FOOT_CORNER_RADIUS)
@@ -77,6 +98,7 @@ def build_foot() -> CoguPart:
         plunger = Cylinder(1.25, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
             Location((x, SOLE_CENTRE, sole_z0)))
         cutters = cutters + pocket + plunger
+    cutters = cutters + switch_wire_channel(x_back, x_front, sole_top)
     solid = solid - cutters
 
     return CoguPart(

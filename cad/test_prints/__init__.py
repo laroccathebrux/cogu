@@ -5,6 +5,8 @@
 - fit_test: pins and holes at 0.1 / 0.2 / 0.3 / 0.4 mm clearance so you know which
   clearance your printer actually produces (the robot assumes 0.2–0.3 mm).
 - bearing_test: one 688ZZ seat (Ø16 + CLEARANCE_TIGHT) and one Ø(8 − 0.15) stub.
+- servo_fit_test: the leg links' servo housing alone (pocket, back wall with the bus window, screw holes): an
+  STS3215 must slide in, the back disc sit in its hole, the 4 M2 holes line up and the plugs go in.
 """
 
 from __future__ import annotations
@@ -62,5 +64,13 @@ def build_bearing_test() -> CoguPart:
                                 "turn freely inside the bearing bore.")
 
 
+def build_servo_fit_test() -> CoguPart:
+    from cad.parts.link import servo_housing
+    housing, cutters = servo_housing(bus_window=True)
+    return CoguPart("servo_fit_test", housing - cutters,
+                    print_notes="Stand on the housing bottom, like the thigh. Slide an STS3215 in: snug, no force; "
+                                "the back disc in its hole, the 4 M2 holes over the servo's, both bus plugs in.")
+
+
 def build_test_prints() -> dict[str, CoguPart]:
-    return {p.name: p for p in (build_insert_test(), build_fit_test(), build_bearing_test())}
+    return {p.name: p for p in (build_insert_test(), build_fit_test(), build_bearing_test(), build_servo_fit_test())}

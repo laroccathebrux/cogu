@@ -220,8 +220,6 @@ ROLL_REAR_PADDLE_SHIFT = 6.0
 # the bearing (10× the leg's weight) ~20 MPa in PETG.
 ROLL_BRIDGE_THICKNESS = 5.0
 ROLL_BRIDGE_HEIGHT = 16.0
-CABLE_CHANNEL_WIDTH = 6.0       # for the 3-wire servo lead (JST 2.54 3P connector ≈ 8 × 3.5 mm)
-CABLE_CHANNEL_DEPTH = 4.0
 
 # ---------------------------------------------------------------------------
 # Hip (pelvis + yaw link + roll link)
@@ -349,4 +347,11 @@ SERVO_DRIVER = dict(pcb=(1.6, 65.0, 30.0), components=10.0, holes=(58.0, 23.0), 
 # 6-axis IMU breakout (ICM-42688-P / BMI270 class), on I2C, inside the drum at the rear: the old spine-board slot.
 IMU_BOARD = dict(size=(4.0, 25.0, 20.0), mass_g=3.0)
 IMU_POS = (-41.5, 0.0, 19.0)    # also the MJCF `imu` site
+# The IMU (BMI270, bought) sticks with double-sided foam tape (it also damps the vibration) on a plate hanging from the
+# deck, its board face at IMU_POS x + 1.5: the breakout's size and holes are measured on arrival, the plate takes
+# anything up to 25 × 20 mm.
+IMU_PLATE = dict(thickness=2.0, width=27.0, z0=8.0)
+# The yaw servos' bus sockets face up, 8.2 mm under the drum deck: a window in the deck and in the cradle base over
+# each servo's sockets (pelvis frame, servo x 11.6..16.5 from the shaft -> x -16.5..-11.6, y = ±20 ± 10.1).
+YAW_PLUG_WINDOW = dict(x=(-18.0, -10.5), y=(8.9, 31.1))
 MISC_ELECTRONICS_MASS_G = 20.0  # switch, fuse, cables
