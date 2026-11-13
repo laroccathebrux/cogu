@@ -250,7 +250,11 @@ FOOT_OUTSET = 7.5               # sole centre outboard of the fork centre line: 
 FOOT_CORNER_RADIUS = 15.0
 FOOT_SOLE_THICKNESS = 5.0
 ANKLE_X_FROM_HEEL = 67.0        # ankle axis 2 mm ahead of the foot centre (old foot: 22, behind it)
-FOOT_SWITCH_SIZE = (6.0, 6.0, 3.5)   # pocket for a 6×6 mm tactile switch, 2 per foot
+# The foot's contact switches: 6×6×5 mm tactile (bought), button Ø3.43 (measured 2026-11-13), 2 per foot. The body
+# sits in a pocket open on the underside of the sole, button down, base against a 1.3 mm ceiling (the ground's push
+# goes into the sole, not into glue), legs up through two slots. The button ends `past_orings` beyond the O-rings
+# (which stand ORING_CS - ORING_GROOVE_DEPTH = 1 mm proud), so standing presses it (travel ~0.25 mm).
+FOOT_SWITCH = dict(body=6.0, body_h=3.5, total_h=5.0, button_d=3.43, leg_pitch=6.5, past_orings=0.3)
 FOOT_SWITCHES_PER_FOOT = 2
 
 # ---------------------------------------------------------------------------

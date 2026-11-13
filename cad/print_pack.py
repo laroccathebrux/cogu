@@ -172,6 +172,8 @@ Total das mesas 1–4: cerca de **{total:.0f} g**. A bolha (mesa 5) pode esperar
 - O tambor e o berço têm uma janela sobre os conectores de cada yaw, e o tambor uma placa para a IMU (fita dupla
   face de espuma).
 - O quadril vai a −130° (sentar quase no chão).
+- As chaves dos pés entram por baixo da sola (13/11): o botão de Ø3,43 não passava no furo de Ø2,5, e uma chave de
+  5 mm de altura ficava 1 mm acima do chão.
 
 ## Montagem: pontos de atenção
 
@@ -182,7 +184,10 @@ Total das mesas 1–4: cerca de **{total:.0f} g**. A bolha (mesa 5) pode esperar
   de cima, com um cabo em Y (entrada e saída no mesmo plugue), ou confira na bancada que o plugue cabe.
 - **Joelho e tornozelo**: a borda do disco da peça de baixo passa a 8,6 mm do soquete, só no milímetro mais perto do
   eixo: o plugue cabe, o fio deve sair para longe do eixo.
-- **Chaves dos pés**: fio de silicone 28–30 AWG (o de 22 AWG não cabe na canaleta de 2,5 × 1,5 mm).
+- **Chaves dos pés** (táteis 6 × 6 × 5, botão Ø3,43): entram **por baixo da sola**, botão para baixo, com as
+  pernas para cima pelas duas fendas; o corpo encosta no teto de 1,3 mm e o botão fica 0,3 mm além dos O-rings
+  (em pé, a chave fecha). Uma gota de cola só para não cair. Solde por cima da sola; fio de silicone 28–30 AWG (o
+  de 22 AWG não cabe na canaleta de 2,5 × 1,5 mm).
 - **Chave liga/desliga**: o lugar no tambor ainda não foi decidido; no protótipo, fica no cabo da bateria.
 - **Servos**: antes de montar, dê um ID a cada um e leve-os ao centro (2048). Os IDs do firmware são 1–5 na perna
   esquerda e 11–15 na direita, do yaw ao tornozelo (`firmware/medula/esp32/src/board.h`).

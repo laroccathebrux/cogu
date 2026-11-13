@@ -65,6 +65,24 @@ def switch_wire_channel(x_back: float, x_front: float, sole_top: float) -> Part:
     return along + branch + tunnel + up
 
 
+def switch_pocket(x: float, sole_z0: float) -> Part:
+    """The tactile switch's pocket, open on the underside: the body (+0.2 on each side, a light press), recessed so the
+    button ends `past_orings` beyond the O-rings, and two slots through the sole for the legs (rows at ±leg_pitch/2
+    across the foot, along X so the pocket keeps 1.2 mm to the O-ring groove)."""
+    sw = P.FOOT_SWITCH
+    oring_proud = P.ORING_CS - P.ORING_GROOVE_DEPTH
+    recess = (sw["total_h"] - sw["body_h"]) - (oring_proud + sw["past_orings"])   # body face above the sole underside
+    depth = sw["body_h"] + recess
+    body = Box(sw["body"] + 0.4, sw["body"] + 0.4, depth + 1.0, align=(Align.CENTER, Align.CENTER, Align.MAX)).moved(
+        Location((x, SOLE_CENTRE, sole_z0 + depth)))
+    legs = None
+    for dy in (sw["leg_pitch"] / 2, -sw["leg_pitch"] / 2):
+        slot = Box(sw["body"] + 0.4, 1.4, P.FOOT_SOLE_THICKNESS + 2.0, align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(
+            Location((x, SOLE_CENTRE + dy, sole_z0 - 1.0)))
+        legs = slot if legs is None else legs + slot
+    return body + legs
+
+
 def build_foot() -> CoguPart:
     sole_z0 = -P.FOOT_HEIGHT
     sole = rounded_box(P.FOOT_LENGTH, P.FOOT_WIDTH, P.FOOT_SOLE_THICKNESS, P.FOOT_CORNER_RADIUS)
@@ -88,16 +106,11 @@ def build_foot() -> CoguPart:
     x_front = P.FOOT_LENGTH - P.ANKLE_X_FROM_HEEL - 16
     x_back = -P.ANKLE_X_FROM_HEEL + 10
     cutters = cutters + _oring_groove(x_front) + _oring_groove(x_back)
-    # contact-switch pockets (6×6 tactile), from the top of the sole, with a Ø2.5 plunger hole, in the middle of
-    # each O-ring loop: 1.2 mm of sole between the pocket and the groove. (Until 2026-10-30 the back switch sat on
-    # the back groove, so the O-ring would have rested on its plunger, and the front pocket broke out of the toe.)
-    sw_l, sw_w, sw_h = P.FOOT_SWITCH_SIZE
+    # contact switches in the middle of each O-ring loop (1.2 mm of sole between the pocket and the groove), from
+    # the underside, button down (FOOT_SWITCH). Until 2026-11-13 they sat in a pocket from the top over a 1.5 mm floor
+    # with a Ø2.5 hole: the Ø3.43 button didn't fit, and a 5 mm switch ended 1 mm short of the ground.
     for x in (x_front, x_back):
-        pocket = Box(sw_l + 0.4, sw_w + 0.4, sw_h, align=(Align.CENTER, Align.CENTER, Align.MAX))
-        pocket = pocket.moved(Location((x, SOLE_CENTRE, sole_top + 0.01)))
-        plunger = Cylinder(1.25, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
-            Location((x, SOLE_CENTRE, sole_z0)))
-        cutters = cutters + pocket + plunger
+        cutters = cutters + switch_pocket(x, sole_z0)
     cutters = cutters + switch_wire_channel(x_back, x_front, sole_top)
     solid = solid - cutters
 
