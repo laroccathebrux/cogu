@@ -56,9 +56,10 @@ NOZZLE = 0.4
 LAYER_HEIGHT = 0.2
 WALL_MIN = 1.2              # 3 perimeters × 0.4 mm
 WALL_STRUCTURAL = 2.4       # 6 perimeters — around bearings and horns
-# fit_test on the A1 Mini (PETG, 2026-11-12): pin Ø6 snug by hand at +0.1, at the edge of loose at +0.2, free at
-# +0.3. So the press fit is +0.1 (diameter); the sliding fits stay at 0.3 per side until the servo_fit_test.
-CLEARANCE_TIGHT = 0.1       # press-ish fits, on the diameter (the 688ZZ seats)
+# Checked on the A1 Mini (PETG, 2026-11-12/13): the 688ZZ presses into the Ø16.2 seat with a little force and stays
+# put (bearing_test). The fit_test's small pin (Ø6) is snug at +0.1 and free at +0.3: small holes come out tighter
+# than big ones, so its numbers don't carry over to the Ø16 seats. The sliding fits wait for the servo_fit_test.
+CLEARANCE_TIGHT = 0.2       # press-ish fits, on the diameter (the 688ZZ seats)
 CLEARANCE_LOOSE = 0.3       # sliding fits, per side (servo body in its housing, fork vs servo discs)
 MATERIALS = ("PETG", "PLA")
 # Exceptions to the PLA/PETG rule, per part (ADR-002, 2026-10-30), only for the phone bubble:

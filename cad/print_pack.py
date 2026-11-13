@@ -24,8 +24,7 @@ PLATES = [
     ("0_testes", "Testes de encaixe (antes de tudo)", [
         ("test_prints/fit_test.stl", 1, "pinos e furos com 0,1 / 0,2 / 0,3 / 0,4 mm de folga (entalhes = décimos)",
          "plana", "não"),
-        ("test_prints/bearing_test.stl", 1, "3 assentos do 688ZZ (16,05 / 16,10 / 16,15 mm) e o pino do back hub",
-         "plana", "não"),
+        ("test_prints/bearing_test.stl", 1, "assento do 688ZZ e o pino do back hub", "plana", "não"),
         ("test_prints/insert_test.stl", 1, "4 furos de inserto M3, para acertar a temperatura do ferro", "plana",
          "não"),
         ("test_prints/servo_fit_test.stl", 1, "o alojamento do servo das pernas, com a janela dos conectores",
@@ -140,11 +139,9 @@ impressão. Se o CAD mudar: `uv run python -m cad.export --no-step && uv run pyt
 
 ## Antes de tudo: a mesa 0, com um servo e um rolamento na mão
 
-1. `fit_test` (feito em 12/11: justo no de 0,1, no limite no de 0,2, solto no de 0,3). O CAD usa agora 0,1 mm nos
-   assentos dos rolamentos e 0,3 mm por lado em volta dos servos.
-2. `bearing_test`: três assentos, marcados com 1, 2 e 3 entalhes (Ø16,05 / 16,10 / 16,15). O 688ZZ tem que entrar
-   **com o polegar e ficar preso** no de 2 entalhes, que é o do CAD. Se só ficar firme no de 1, ou só entrar no de 3,
-   avise: o assento muda nas peças. O pino tem que girar solto dentro do rolamento.
+1. `fit_test`: **feito em 12/11**: justo no furo de 0,1, no limite no de 0,2, solto no de 0,3.
+2. `bearing_test`: **feito em 13/11**: o 688ZZ entra no assento de Ø16,2 empurrando com um pouco de força e fica
+   firme. É o assento de todas as peças. Falta conferir que o pino gira solto dentro do rolamento.
 3. `insert_test`: acerte a temperatura do ferro até o inserto M3 ficar rente (PETG ≈ 230 °C, PLA ≈ 200 °C).
 4. `servo_fit_test`: o STS3215 desliza para dentro sem forçar, o disco de trás assenta no furo, os 4 furos M2
    batem com os do servo e **os dois plugues do barramento entram pela janela**. Meça também quanto o plugue
