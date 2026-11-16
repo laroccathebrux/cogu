@@ -336,18 +336,22 @@ PALETTE = dict(printed="0.91 0.92 0.93 1", accent="0.88 0.40 0.29 1", servo="0.0
 ACCENT_PARTS = ("foot",)        # printed in the accent colour (the drum's rim too, as a colour change)
 
 # Electronics (bought parts). Positions are box centres in the pelvis frame.
-# Battery: 2S LiPo standing on its long edge in the drum's front bay; the cage is generated from `size`.
-# What fits (checked in CAD, 2026-10-30): rear face at x = 12.6 (clear of the yaw servos and the front screw
-# tubes), height ≤ 34 mm, and the front corners inside the drum's inner wall (R 51.2 about COVER_CENTER_X).
-# Max length for a 2 mm safety margin: 15 mm thick → 78 mm, 16 → 77, 18 → 73, 19 → 71, 20 → 69.
+# Battery: 2S LiPo standing on its long edge in the drum's front bay, strapped to the deck with velcro.
+# What fits (checked in CAD, 2026-10-30): rear face clear of the yaw servos and the front screw tubes, height ≤ 34 mm,
+# and the front corners inside the drum's inner wall (R 51.2 about COVER_CENTER_X).
 # Bought 2026-10-30: Leão LiPo 2S 7.4 V 1500 mAh, 70 × 30 × 17 mm, 75 g, Deans T plug + JST-XH balance lead.
 BATTERY_2S = dict(size=(17.0, 70.0, 30.0), mass_g=75.0)   # x (thickness) × y (length) × z (width, standing)
-BATTERY_CAGE_CLEARANCE = 0.5   # per side, inside the cage: pouch cells vary ±0.5 mm, prints shrink a little
-# The pack stands on the pelvis plate (z 0 .. 30; the plate reaches x 25, the pack x 12.8 .. 29.8) inside a cage
-# hanging from the deck, open at the bottom; 7 mm of foam between the pack and the deck (z 37) hold it down.
-BATTERY_POS = (12.6 + 0.2 + 17.0 / 2, 0.0, 15.0)   # cage's inner rear wall stays at x = 12.3 (clear of the yaw servos)
-BATTERY_CAGE_WALLS_Z0 = 2.4    # the cage walls stop 2.4 mm above the pelvis plate
-BATTERY_CAGE_WALL = 1.6
+# No cage since 2026-11-16 (the user's call: the pack sits free in the bay). Two 10 mm velcro straps go round the pack
+# (over its top, down its faces, under it) and through two flat belt loops under the deck, which pull it up against
+# them; bolted down, it hangs just above the pelvis plate. The pack moved 1.5 mm forward so the rear strap run
+# (≈ 1.6 mm) clears the yaw servos (front face x 10.1) by 2.6 mm; its front corners keep 2.9 mm to the drum wall.
+BATTERY_STRAP = dict(width=10.0, y=18.0, channel_h=2.2, bar=1.6, post=2.0, length=8.0, clearance=0.5)
+BATTERY_POS = (14.3 + 17.0 / 2, 0.0,
+               COVER_TOP_Z - COVER_DECK - BATTERY_STRAP["channel_h"] - BATTERY_STRAP["bar"] - 30.0 / 2)   # top on the loops
+# Lead holes through the deck, one past each end of the pack (it goes in either way round): the leads come out of
+# an end face and go straight up into the bubble without bending back over the pack. In front of the cradle base
+# (x > 22) and inside the bubble's collar.
+BATTERY_LEAD_HOLE = dict(x=(22.8, 30.0), y=(30.0, 39.0), r=3.5)
 # "Spinal cord" = Waveshare Servo Driver with ESP32 (bought 2026-10-30): ESP32 + ST/SC bus-servo interface (2 ports,
 # one per leg) + 0.91" OLED, 6–12 V DC jack 5.5 × 2.1 mm, mounting holes Ø2.75 at 23 × 58 mm (board ≈ 30 × 65 mm).
 # It stands on two posts of the cradle, behind the phone, OLED facing backwards (visible between the rear ribs),

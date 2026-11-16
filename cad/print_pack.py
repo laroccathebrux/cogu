@@ -53,7 +53,7 @@ PLATES = [
         ("back_hub_roll_R.stl", 2, "back hub do roll (placa de 10 mm), 1 por perna", "idem", "idem"),
     ]),
     ("4_tambor_berco", "Tambor e berço do celular", [
-        ("hip_cover_R.stl", 1, "tambor: gaiola da bateria (aberta embaixo), placa da IMU, janelas dos yaw",
+        ("hip_cover_R.stl", 1, "tambor: passadores do velcro da bateria, furos dos fios dela, placa da IMU, janelas dos yaw",
          "tampo na mesa", "não"),
         ("phone_cradle_R.stl", 1, "berço do iPhone 15 Pro Max, com os postes da placa Waveshare",
          "base na mesa, trilhos em pé", "não"),
@@ -172,7 +172,9 @@ Total das mesas 1–4: cerca de **{total:.0f} g**. A bolha (mesa 5) pode esperar
 - O tambor e o berço têm uma janela sobre os conectores de cada yaw, e o tambor uma placa para a IMU (fita dupla
   face de espuma).
 - O quadril vai a −130° (sentar quase no chão).
-- A gaiola da bateria ficou aberta embaixo (16/11): antes ela tinha piso, e a bateria não tinha por onde entrar.
+- O tambor perdeu a gaiola da bateria (16/11): ela fica solta na baia da frente, presa por 2 tiras de velcro que
+  passam por 2 passadores embaixo do tampo. Os fios sobem por um furo junto à ponta da bateria (há um em cada ponta),
+  em vez de voltar pelo meio.
 - As chaves dos pés entram por baixo da sola (13/11): o botão de Ø3,43 não passava no furo de Ø2,5, e uma chave de
   5 mm de altura ficava 1 mm acima do chão.
 
@@ -189,9 +191,11 @@ Total das mesas 1–4: cerca de **{total:.0f} g**. A bolha (mesa 5) pode esperar
   pernas para cima pelas duas fendas; o corpo encosta no teto de 1,3 mm e o botão fica 0,3 mm além dos O-rings
   (em pé, a chave fecha). Uma gota de cola só para não cair. Solde por cima da sola; fio de silicone 28–30 AWG (o
   de 22 AWG não cabe na canaleta de 2,5 × 1,5 mm).
-- **Bateria**: a gaiola é aberta embaixo. Com o tambor de cabeça para baixo, a bateria entra por baixo, com os fios
-  para trás (saem pela fenda junto ao tampo). Cole ~7 mm de espuma (EVA, ou fita dupla face de espuma empilhada)
-  no tampo, dentro da gaiola (em cima da bateria): ao parafusar o tambor na pelve, a bateria fica presa entre a espuma e a pelve.
+- **Bateria** (tambor de cabeça para baixo): passe uma tira de velcro de 10 mm por cada passador (entre a barrinha e
+  o tampo). Deite a bateria sobre os passadores, de pé (30 mm de altura), com a ponta dos fios do lado de um dos furos
+  do tampo. Cada tira dá a volta na bateria (por cima, pela frente, por baixo, por trás) e fecha nela mesma; deixe a
+  emenda dobrada na frente ou embaixo, nunca atrás (atrás sobram só 2,6 mm até os servos de yaw). Suba os fios pelo
+  furo para dentro da bolha, sem dobrar o cabo para trás.
 - **Chave liga/desliga**: o lugar no tambor ainda não foi decidido; no protótipo, fica no cabo da bateria.
 - **Servos**: antes de montar, dê um ID a cada um e leve-os ao centro (2048). Os IDs do firmware são 1–5 na perna
   esquerda e 11–15 na direita, do yaw ao tornozelo (`firmware/medula/esp32/src/board.h`).

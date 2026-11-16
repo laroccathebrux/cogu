@@ -219,6 +219,15 @@ do LiDAR. Plano em duas camadas: a política de marcha continua só com servos e
 para onde ir, a 5–10 Hz, e manda os comandos de velocidade. No simulador, a câmera `phone_cam` do MJCF renderiza
 imagem e profundidade (para fazer o papel do LiDAR) e a posição do ARKit é a verdadeira com erro e atraso.
 
+## Atualização 2026-11-16 — bateria solta, com velcro
+
+O tambor perdeu a gaiola da bateria. A bateria fica solta na baia da frente, presa por duas tiras de velcro de
+10 mm (y = ±18). Cada tira passa por um passador plano embaixo do tampo e dá a volta na bateria. A bateria avançou
+1,5 mm (face de trás em x 14,3) para a tira de trás passar a 2,6 mm dos servos de yaw. Ela fica pendurada a 1,6 mm
+da placa da pelve. Os fios sobem por um furo de 7,2 × 9 mm no tampo, logo depois de cada ponta da bateria, na
+frente do berço. Antes saíam por uma janela no meio da gaiola e voltavam por cima da bateria. A fenda no meio do
+tampo (x 12) é a do USB-C do celular, não a da bateria.
+
 ## Próximos passos
 
 1. CAD da pelve nova com o suporte do celular; MJCF com o celular como caixa randomizada.

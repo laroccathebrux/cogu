@@ -8,7 +8,7 @@ marcados **estável** não dependem de mudanças no CAD.
 | Servo Feetech STS3215 7,4 V | 10 (+2 de reserva) | 5 por perna; comprados 10 (1 avulso + 3 kits de 3), sem reserva | **comprado** |
 | Waveshare Servo Driver with ESP32 | 1 | ESP32 + barramento ST/SC (2 portas, uma por perna) + OLED; entrada 6–12 V, plugue 5,5 × 2,1 mm | **comprado** |
 | IMU 6 eixos em placa I²C | 1 | BMI270 | **comprado** |
-| Bateria LiPo 2S (7,4 V) | 1 | Leão 1500 mAh, 70 × 30 × 17 mm, 75 g, Deans T + JST-XH; em pé no tambor (regra de encaixe em `parameters.py`) | **comprado** |
+| Bateria LiPo 2S (7,4 V) | 1 | Leão 1500 mAh, 70 × 30 × 17 mm, 75 g, Deans T + JST-XH; em pé no tambor, presa com velcro (regra de encaixe em `parameters.py`) | **comprado** |
 | Carregador de balanceamento 2S | 1 | ImaxRC B3 Pro (2S/3S, 110–220 V), conector JST-XH | **comprado** |
 | Cabo bateria → plugue DC 5,5 × 2,1 mm | 1 | montar: Deans T macho → chave → XT30 → plugue DC com rabicho (2 pares Deans T, 10 pares XT30, 5 plugues DC) | **comprado** (peças) |
 | Chave liga/desliga ≥ 5 A + fusível | 1 + 1 | chave gangorra KCD1 10 A (pacote com 10); porta-fusível mini lâmina com fio DNI 7514 + fusíveis mini lâmina 10 A (DNI, 10 un.); posição da chave no CAD em aberto | **comprado** |
@@ -22,7 +22,7 @@ marcados **estável** não dependem de mudanças no CAD.
 | Filamento PETG coral | ~30 g | pés e aro do tambor (troca de cor) | estável |
 | Filamento PCTG prata | ~100 g | bolha (exceção de material, ADR-002) | **comprado** |
 | Filamento TPU 95A preto | ~60 g | capas da bolha (exceção de material, ADR-002) | **comprado** |
-| Fita de velcro dupla face 10 mm | ~20 cm | prende a bateria na gaiola (a janela do piso deixa passar até 13 mm); rolo de 5 m | **comprado** |
+| Fita de velcro dupla face 10 mm | ~20 cm | prende a bateria: 2 tiras pelos passadores sob o tampo do tambor (~15 cm cada); rolo de 5 m | **comprado** |
 | Bolsa antichamas para LiPo | 1 | para carregar e guardar a bateria | **comprado** |
 | Alarme de tensão LiPo 1–8S com visor | 1 | no conector de balanceamento, apita antes de descarregar demais | **comprado** |
 | Filamento PLA Lite laranja | ~200 g | impressão de teste da parte de baixo (`build/print/parte_de_baixo`), já em casa | já tinha |
