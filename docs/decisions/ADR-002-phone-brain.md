@@ -224,8 +224,8 @@ imagem e profundidade (para fazer o papel do LiDAR) e a posição do ARKit é a 
 O tambor perdeu a gaiola da bateria. A bateria fica solta na baia da frente, presa por duas tiras de velcro de
 10 mm (y = ±18). Cada tira passa por um passador plano embaixo do tampo e dá a volta na bateria. A bateria avançou
 1,5 mm (face de trás em x 14,3) para a tira de trás passar a 2,6 mm dos servos de yaw. Ela fica pendurada a 1,6 mm
-da placa da pelve. Os fios sobem por um furo de 7,2 × 9 mm no tampo, logo depois de cada ponta da bateria, na
-frente do berço. Antes saíam por uma janela no meio da gaiola e voltavam por cima da bateria. A fenda no meio do
+da placa da pelve. Os fios sobem por uma fenda de 6,5 × 12,5 mm no tampo, em cada ponta da bateria, na frente
+do berço. A fenda passa o maior plugue do cabo (11 × 5,5 mm). Antes saíam por uma janela no meio da gaiola e voltavam por cima da bateria. A fenda no meio do
 tampo (x 12) é a do USB-C do celular, não a da bateria.
 
 ## Próximos passos

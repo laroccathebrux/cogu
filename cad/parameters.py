@@ -348,10 +348,11 @@ BATTERY_2S = dict(size=(17.0, 70.0, 30.0), mass_g=75.0)   # x (thickness) × y (
 BATTERY_STRAP = dict(width=10.0, y=18.0, channel_h=2.2, bar=1.6, post=2.0, length=8.0, clearance=0.5)
 BATTERY_POS = (14.3 + 17.0 / 2, 0.0,
                COVER_TOP_Z - COVER_DECK - BATTERY_STRAP["channel_h"] - BATTERY_STRAP["bar"] - 30.0 / 2)   # top on the loops
-# Lead holes through the deck, one past each end of the pack (it goes in either way round): the leads come out of
-# an end face and go straight up into the bubble without bending back over the pack. In front of the cradle base
-# (x > 22) and inside the bubble's collar.
-BATTERY_LEAD_HOLE = dict(x=(22.8, 30.0), y=(30.0, 39.0), r=3.5)
+# Lead slots through the deck at each end of the pack (it goes in either way round): the leads come out of an end
+# face and go straight up into the bubble. The biggest plug on them is 11 × 5.5 mm (measured 2026-11-16): the slot is
+# 6.5 × 12.5 mm, 0.75 mm round it, long side along Y. It reaches 4 mm past the pack's end (the rest is over the
+# pack's top, under the deck); in front of the cradle base (x > 22) and 1.1 mm inside the drum's inner wall.
+BATTERY_LEAD_HOLE = dict(x=(22.8, 29.3), y=(26.5, 39.0), r=1.0)
 # "Spinal cord" = Waveshare Servo Driver with ESP32 (bought 2026-10-30): ESP32 + ST/SC bus-servo interface (2 ports,
 # one per leg) + 0.91" OLED, 6–12 V DC jack 5.5 × 2.1 mm, mounting holes Ø2.75 at 23 × 58 mm (board ≈ 30 × 65 mm).
 # It stands on two posts of the cradle, behind the phone, OLED facing backwards (visible between the rear ribs),
