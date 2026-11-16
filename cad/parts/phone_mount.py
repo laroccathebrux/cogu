@@ -6,7 +6,7 @@ servos' horn face, +Z up, +X forward) and placed at the origin of the pelvis bod
 
   hip_cover    open-bottom drum (or box) from the pelvis plate (z = 0) to COVER_TOP_Z, bolted to the 4 pelvis
                bosses through screw tubes. Front bay: the 2S battery in a cage hanging from the
-               deck. Rear bay: the "spinal cord" board (ESP32-S3 + IMU + bus-servo interface).
+               deck, open at the bottom: the pack rests on the pelvis plate. Rear bay: the "spinal cord" board (ESP32-S3 + IMU + bus-servo interface).
                2 M3 inserts on the centre line take the cradle. Printed deck-down: no supports.
   phone_cradle base plate on the deck + two C-rails gripping the phone's long edges. The rails
                are straight extrusions along Z, so printed base-down they need no supports.
@@ -163,19 +163,20 @@ def build_hip_cover() -> CoguPart:
         inserts.append(InsertHole(loc))
         cutters = cutters + insert_hole_cutter(loc)
 
-    # battery cage hanging from the deck (walls + floor), front bay
+    # battery cage hanging from the deck, front bay: four walls, open at the bottom. The pack goes in from below
+    # (drum upside down) and rests on the pelvis plate once the drum is bolted on; a foam pad between the pack and
+    # the deck takes up the rest. (Until 2026-11-16 the cage had a floor with a strap window, and the pack had no way
+    # in.)
     bx, by, bz = P.BATTERY_2S["size"]
     cx, cy, cz = P.BATTERY_POS
     cw = P.BATTERY_CAGE_WALL
     gap = 2 * P.BATTERY_CAGE_CLEARANCE
-    floor_z = cz - bz / 2
-    cage_out = Box(bx + gap + 2 * cw, by + gap + 2 * cw, DECK_UNDER_Z - (floor_z - cw) + 0.01,
-                   align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, floor_z - cw)))
-    cage_in = Box(bx + gap, by + gap, DECK_UNDER_Z - floor_z + 1.0,
-                  align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, floor_z)))
-    # strap window in the floor (a hook-and-loop strap holds the pack) and a lead exit at the rear
-    window = Box(bx - 4, by - 30, 10, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
-        Location((cx, cy, floor_z - cw / 2)))
+    walls_z0 = P.BATTERY_CAGE_WALLS_Z0
+    cage_out = Box(bx + gap + 2 * cw, by + gap + 2 * cw, DECK_UNDER_Z - walls_z0 + 0.01,
+                   align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, walls_z0)))
+    cage_in = Box(bx + gap, by + gap, DECK_UNDER_Z - walls_z0 + 2.0,
+                  align=(Align.CENTER, Align.CENTER, Align.MIN)).moved(Location((cx, cy, walls_z0 - 1.0)))
+    # lead exit at the rear, under the deck
     lead = Box(4 * cw, 14, 10, align=(Align.CENTER, Align.CENTER, Align.MAX)).moved(
         Location((cx - bx / 2 - cw / 2, cy, DECK_UNDER_Z - 2)))
     # the cage's rear corners reach down beside the two front screw tubes, where the pelvis bosses (Ø9.2, top at
@@ -195,7 +196,7 @@ def build_hip_cover() -> CoguPart:
     rib = Box(6.0, 2.0, DECK_UNDER_Z - ip["z0"] + 0.01, align=(Align.MAX, Align.CENTER, Align.MIN)).moved(
         Location((plate_x1 - ip["thickness"] + 0.01, 0, ip["z0"])))              # stiffener behind it
     solid = solid + plate + rib
-    cutters = cutters + window + lead
+    cutters = cutters + lead
 
     # servo leads from the driver board, through the cradle tongue
     cutters = cutters + Box(*DRIVER_CABLE_HOLE[0], 20, align=(Align.CENTER, Align.CENTER, Align.CENTER)).moved(
@@ -221,7 +222,7 @@ def build_hip_cover() -> CoguPart:
         solid=solid,
         print_rotation=Rotation(180, 0, 0),
         print_notes="Deck down on the bed, walls and tubes up: no supports. Heat-set the 2 M3 inserts "
-                    "from the deck side. The battery cage floor bridges 13 mm.",
+                    "from the deck side.",
         insert_holes=inserts,
         attached_masses=masses,
         infill_factor=0.9,           # thin walls: almost all perimeters
